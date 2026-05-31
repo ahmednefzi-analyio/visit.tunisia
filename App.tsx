@@ -8,7 +8,15 @@ import { WeatherWidget } from './components/WeatherWidget';
 import { X, Search, MapPin, Calendar, Star } from 'lucide-react';
 
 const App: React.FC = () => {
-  const [apiKey, setApiKey] = useState<string | null>(process.env.API_KEY || null);
+  const [apiKey, setApiKey] = useState<string | null>(() => {
+    return (
+      (import.meta as any).env?.VITE_GEMINI_API_KEY ||
+      (import.meta as any).env?.VITE_API_KEY ||
+      process.env.API_KEY ||
+      process.env.GEMINI_API_KEY ||
+      null
+    );
+  });
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [currentMode, setCurrentMode] = useState<AppMode>(AppMode.MAPS);
@@ -167,8 +175,64 @@ Type can be 'event', 'archaeological', 'clothes', or 'coffee'. STRICT RULE: Only
   // If no API key is present
   if (!apiKey) {
     return (
-      <div className="flex h-screen items-center justify-center bg-slate-100 dark:bg-slate-900 text-slate-800 dark:text-slate-200">
-        <p>API Key not found in environment.</p>
+      <div className="flex min-h-screen items-center justify-center bg-slate-50 dark:bg-slate-950 p-6 text-slate-800 dark:text-slate-100 font-sans">
+        <div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl p-8 shadow-xl border border-slate-150 dark:border-slate-800 transition-all">
+          <div className="flex h-14 w-14 items-center justify-center rounded-3xl bg-blue-100/80 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 mb-6">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-7 h-7">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" />
+            </svg>
+          </div>
+          
+          <h1 className="text-2xl font-bold tracking-tight mb-2">Gemini API Key Required</h1>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mb-6 leading-relaxed">
+            The application is hosted successfully! To power our regional heritage exploration and chatbot recommendations, please configure your Gemini API Key.
+          </p>
+          
+          <div className="border-t border-slate-100 dark:border-slate-800/80 pt-6 space-y-4">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-400 mb-1">Vercel Setup Instructions</h2>
+            
+            <div className="flex gap-3">
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-50 dark:bg-blue-950/50 text-xs font-semibold text-blue-600">1</span>
+              <div>
+                <p className="text-sm font-medium text-slate-700 dark:text-slate-200">Open your Vercel Dashboard</p>
+                <p className="text-xs text-slate-400">Navigate to your project's settings page.</p>
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-50 dark:bg-blue-950/50 text-xs font-semibold text-blue-600">2</span>
+              <div>
+                <p className="text-sm font-medium text-slate-700 dark:text-slate-200">Add Environment Variable</p>
+                <p className="text-xs text-slate-400">
+                  Add <code className="font-mono bg-slate-100 dark:bg-slate-800 text-blue-600 px-1 rounded text-[11px] font-semibold">GEMINI_API_KEY</code> or <code className="font-mono bg-slate-100 dark:bg-slate-800 text-blue-600 px-1 rounded text-[11px] font-semibold">VITE_GEMINI_API_KEY</code> as the key.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-50 dark:bg-blue-950/50 text-xs font-semibold text-blue-600">3</span>
+              <div>
+                <p className="text-sm font-medium text-slate-700 dark:text-slate-200">Redeploy your App</p>
+                <p className="text-xs text-slate-400">Re-run the build sequence or deploy your latest commit. The app will launch 100% instantly!</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-8 border-t border-slate-100 dark:border-slate-800/80 pt-4 flex items-center justify-between">
+            <a 
+              href="https://aistudio.google.com/app/apikey" 
+              target="_blank" 
+              className="text-xs font-medium text-blue-500 hover:text-blue-600 transition-colors flex items-center gap-1"
+            >
+              Get Gemini API Key
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-3.5 h-3.5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
+              </svg>
+            </a>
+            
+            <p className="text-[10px] text-slate-400 dark:text-slate-500 italic">GeoGuide AI Offline-Capactive Map</p>
+          </div>
+        </div>
       </div>
     );
   }
