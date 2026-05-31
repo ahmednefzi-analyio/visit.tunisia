@@ -11,7 +11,9 @@ import {
   Globe2,
   BookmarkCheck,
   Flame,
-  MessageSquare
+  MessageSquare,
+  ShieldAlert,
+  X
 } from 'lucide-react';
 import { auth, db, handleFirestoreError, OperationType } from '../services/firebase';
 import { 
@@ -39,6 +41,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onAuthSuccess }) => {
   const [activeMood, setActiveMood] = useState('Archaeological');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  
+  // Firebase domain error tracking
+  const [showDomainHelper, setShowDomainHelper] = useState(false);
+  const [domainErrorHost, setDomainErrorHost] = useState('');
 
   // Exclusively Northwest focused travel and explore moods
   const moods = [
@@ -113,8 +119,18 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onAuthSuccess }) => {
 
       onAuthSuccess(user.uid);
     } catch (err: any) {
-      console.error(err);
-      setError(err.message || 'Google Auth aborted or unavailable in sandbox environment.');
+      console.error("Google Auth error:", err);
+      // Specifically intercept auth/unauthorized-domain errors
+      if (
+        err.code === 'auth/unauthorized-domain' || 
+        (err.message && err.message.toLowerCase().includes('unauthorized-domain')) ||
+        (err.message && err.message.toLowerCase().includes('auth-domain'))
+      ) {
+        setDomainErrorHost(window.location.hostname);
+        setShowDomainHelper(true);
+      } else {
+        setError(err.message || 'Google Auth aborted or unavailable in sandbox environment.');
+      }
     } finally {
       setLoading(false);
     }
@@ -465,6 +481,76 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onAuthSuccess }) => {
           </div>
         </div>
       </footer>
+
+      {/* 4. FIREBASE DOMAIN AUTHORIZATION HELPER OVERLAY (NO GRADIENTS) */}
+      {showDomainHelper && (
+        <div className="fixed inset-0 z-[999] flex items-center justify-center bg-slate-900/70 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-3xl w-full max-w-lg p-6 overflow-hidden shadow-2xl border border-slate-200">
+            
+            {/* Header */}
+            <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <span className="p-2 bg-amber-100 text-amber-700 rounded-xl">
+                  <ShieldAlert size={20} />
+                </span>
+                <div>
+                  <h3 className="font-bold text-sm text-slate-800">Domain Authorization Required</h3>
+                  <p className="text-[10px] text-slate-400 uppercase font-mono">Firebase OAuth Guard</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowDomainHelper(false)}
+                className="p-1 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg cursor-pointer transition"
+              >
+                <X size={15} />
+              </button>
+            </div>
+
+            {/* Instruction Body */}
+            <div className="mt-4 space-y-3">
+              <p className="text-xs text-slate-600 leading-relaxed font-light">
+                Your Firebase Project configuration does not authorize this dynamic sandbox hostname for Google OAuth. To enable Google Single Sign-In, apply the following steps:
+              </p>
+
+              <div className="bg-slate-50 border border-slate-150 p-4 rounded-xl space-y-2">
+                <p className="text-[11px] font-bold text-slate-700 uppercase tracking-wider font-mono">Active Sandbox Hostname:</p>
+                <code className="block bg-slate-200 p-2 text-xs font-semibold font-mono rounded-lg text-slate-800 break-all select-all">
+                  {domainErrorHost || "localhost"}
+                </code>
+              </div>
+
+              <div className="space-y-2 text-xs text-slate-600 font-light">
+                <p className="font-semibold text-slate-700">How to authorize this domain:</p>
+                <ol className="list-decimal list-inside space-y-1 pl-1">
+                  <li>Open the <a href="https://console.firebase.google.com" target="_blank" rel="noopener noreferrer" className="text-teal-600 hover:underline font-semibold">Firebase Console</a>.</li>
+                  <li>Click into your project, then select <strong className="text-slate-800">Authentication</strong> in the sidebar.</li>
+                  <li>Navigate to the <strong className="text-slate-800">Settings</strong> (or Auths / Templates) tab.</li>
+                  <li>Scroll down or click <strong className="text-slate-800">Authorized domains</strong>.</li>
+                  <li>Click <strong className="text-teal-600 font-bold">Add domain</strong> and paste the hostname copy code above.</li>
+                  <li>Click save.</li>
+                </ol>
+              </div>
+
+              <div className="p-3 bg-teal-50 border border-teal-150 rounded-xl">
+                <p className="text-[11px] text-teal-800 leading-normal font-medium">
+                  💡 <strong>Immediate Alternative:</strong> In the meantime, you can sign up or access the app immediately by using a standard Email and Password standard account without any setup!
+                </p>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="mt-5 pt-3 border-t border-slate-100 flex justify-end gap-2">
+              <button
+                onClick={() => setShowDomainHelper(false)}
+                className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-bold rounded-xl transition cursor-pointer"
+              >
+                Close & Use Email Logins
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
 
     </div>
   );
