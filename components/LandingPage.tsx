@@ -13,7 +13,8 @@ import {
   Flame,
   MessageSquare,
   ShieldAlert,
-  X
+  X,
+  Zap
 } from 'lucide-react';
 import { auth, db, handleFirestoreError, OperationType } from '../services/firebase';
 import { 
@@ -131,6 +132,47 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onAuthSuccess }) => {
       } else {
         setError(err.message || 'Google Auth aborted or unavailable in sandbox environment.');
       }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGuestAccess = async () => {
+    setError(null);
+    setLoading(true);
+    setShowDomainHelper(false);
+    try {
+      const visitorEmail = 'explorer@memoria.tn';
+      const visitorPassword = 'explorenorthwest';
+      try {
+        const userCredential = await signInWithEmailAndPassword(auth, visitorEmail, visitorPassword);
+        onAuthSuccess(userCredential.user.uid);
+      } catch (signInErr: any) {
+        // If account doesn't exist or is invalid-credential, create public guest account on-demand
+        if (
+          signInErr.code === 'auth/user-not-found' || 
+          signInErr.code === 'auth/invalid-credential' || 
+          signInErr.code === 'auth/wrong-password' ||
+          (signInErr.message && signInErr.message.includes('not-found'))
+        ) {
+          const userCredential = await createUserWithEmailAndPassword(auth, visitorEmail, visitorPassword);
+          const user = userCredential.user;
+          await setDoc(doc(db, 'userProfiles', user.uid), {
+            uid: user.uid,
+            displayName: "Northwest Visitor",
+            email: visitorEmail,
+            bio: "Express Visitor exploring Northwest Tunisia ancient heritage maps.",
+            mood: "Archaeological",
+            createdAt: new Date()
+          });
+          onAuthSuccess(user.uid);
+        } else {
+          throw signInErr;
+        }
+      }
+    } catch (err: any) {
+      console.error("Guest bypass error:", err);
+      setError(err.message || 'Quick guest access failed.');
     } finally {
       setLoading(false);
     }
@@ -419,6 +461,15 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onAuthSuccess }) => {
               Sign In with Google
             </button>
 
+            <button
+              onClick={handleGuestAccess}
+              disabled={loading}
+              className="w-full mt-3 bg-teal-50 border border-teal-200 text-teal-800 hover:bg-teal-100 py-3 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition disabled:opacity-50"
+            >
+              <Zap className="text-teal-600 animate-pulse" size={14} />
+              Quick Guest Access (No Accounts / Setup Required)
+            </button>
+
             <div className="mt-6 text-center text-xs text-slate-500 font-medium">
               {isSignUp ? 'Already a registered explorer?' : "New to Tunisia's Memoria travel circle?"}{' '}
               <button
@@ -539,10 +590,17 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onAuthSuccess }) => {
             </div>
 
             {/* Actions */}
-            <div className="mt-5 pt-3 border-t border-slate-100 flex justify-end gap-2">
+            <div className="mt-5 pt-3 border-t border-slate-100 flex flex-col sm:flex-row gap-2 justify-end">
+              <button
+                onClick={handleGuestAccess}
+                className="w-full sm:w-auto px-4 py-2.5 bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer shadow-md"
+              >
+                <Zap size={13} className="animate-pulse" />
+                Bypass & Enter Custom Guest Account
+              </button>
               <button
                 onClick={() => setShowDomainHelper(false)}
-                className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-bold rounded-xl transition cursor-pointer"
+                className="w-full sm:w-auto px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition cursor-pointer"
               >
                 Close & Use Email Logins
               </button>
