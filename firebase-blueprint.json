@@ -1,0 +1,243 @@
+{
+  "entities": {
+    "userProfile": {
+      "title": "UserProfile",
+      "description": "User public profiles with customizable bios and tourism matching moods",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Unique User UID"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "User screen name"
+        },
+        "email": {
+          "type": "string",
+          "description": "User private email"
+        },
+        "bio": {
+          "type": "string",
+          "description": "Biography describing interest in Tunisia tourism"
+        },
+        "mood": {
+          "type": "string",
+          "description": "Active tourism mood (e.g. Archaeological, Beach, Nature, Culinary, Culture)"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Creation timestamp"
+        }
+      },
+      "required": [
+        "uid",
+        "displayName",
+        "email",
+        "createdAt"
+      ]
+    },
+    "savedPlace": {
+      "title": "SavedPlace",
+      "description": "Interactive geographical points saved by users in Tunisia",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Place Unique ID"
+        },
+        "userId": {
+          "type": "string",
+          "description": "Owner identifier UID"
+        },
+        "title": {
+          "type": "string",
+          "description": "Name of monument or place"
+        },
+        "lat": {
+          "type": "number",
+          "description": "Geographical latitude"
+        },
+        "lng": {
+          "type": "number",
+          "description": "Geographical longitude"
+        },
+        "type": {
+          "type": "string",
+          "description": "Icon categorisation of the spot"
+        },
+        "description": {
+          "type": "string",
+          "description": "Personal notes"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Saved date"
+        }
+      },
+      "required": [
+        "id",
+        "userId",
+        "title",
+        "lat",
+        "lng",
+        "type",
+        "createdAt"
+      ]
+    },
+    "review": {
+      "title": "Review",
+      "description": "Global user reviews for Tunisia sightseeing locations, visible to all registered visitors",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Review unique ID"
+        },
+        "userId": {
+          "type": "string",
+          "description": "Writer identity UID"
+        },
+        "userDisplayName": {
+          "type": "string",
+          "description": "Screen name of the reviewer"
+        },
+        "placeTitle": {
+          "type": "string",
+          "description": "Name of Tunisia location being reviewed"
+        },
+        "rating": {
+          "type": "number",
+          "description": "Rating score from 1 up to 5 stars"
+        },
+        "text": {
+          "type": "string",
+          "description": "Review commentary text body"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Review timestamp"
+        }
+      },
+      "required": [
+        "id",
+        "userId",
+        "userDisplayName",
+        "placeTitle",
+        "rating",
+        "text",
+        "createdAt"
+      ]
+    },
+    "conversation": {
+      "title": "Conversation",
+      "description": "Private persistent conversation sessions containing travel guidance history",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Session UUID"
+        },
+        "userId": {
+          "type": "string",
+          "description": "Owner travel guide visitor"
+        },
+        "title": {
+          "type": "string",
+          "description": "Interactive summary header"
+        },
+        "messages": {
+          "type": "array",
+          "description": "Raw chat log structures containing system history"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last updated date"
+        }
+      },
+      "required": [
+        "id",
+        "userId",
+        "title",
+        "messages",
+        "updatedAt"
+      ]
+    },
+    "friendship": {
+      "title": "Friendship",
+      "description": "Social links indicating friends and invites matching the user-mood in Tunisia tourism theme",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Composite friend relation UID"
+        },
+        "senderUid": {
+          "type": "string",
+          "description": "Sender identifier UID"
+        },
+        "receiverUid": {
+          "type": "string",
+          "description": "Receiver identifier UID"
+        },
+        "senderName": {
+          "type": "string",
+          "description": "Sender user profile name"
+        },
+        "receiverName": {
+          "type": "string",
+          "description": "Receiver user profile name"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "accepted",
+            "declined"
+          ],
+          "description": "Friend proposal outcome stage"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Relationship updated date"
+        }
+      },
+      "required": [
+        "id",
+        "senderUid",
+        "receiverUid",
+        "senderName",
+        "receiverName",
+        "status",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "userProfiles/{userId}": {
+      "schema": "userProfile",
+      "description": "Details supporting user profile cards"
+    },
+    "userProfiles/{userId}/savedPlaces/{placeId}": {
+      "schema": "savedPlace",
+      "description": "Personalized geolocation bookmarked monuments"
+    },
+    "reviews/{reviewId}": {
+      "schema": "review",
+      "description": "Global collective reviews of Tunisia tourism locations visible to everyone"
+    },
+    "conversations/{conversationId}": {
+      "schema": "conversation",
+      "description": "Travel chatbot search recommendations and conversational state"
+    },
+    "friendships/{friendshipId}": {
+      "schema": "friendship",
+      "description": "Inter-user social link records and friend requests"
+    }
+  }
+}

@@ -8,6 +8,7 @@ interface MapComponentProps {
   markers?: MapMarkerData[];
   onCenterChange: (center: Coordinates) => void;
   onMarkerClick?: (marker: MapMarkerData) => void;
+  onMapClick?: (coords: Coordinates) => void;
 }
 
 // Inline SVG-based custom HTML marker iconography for Leaflet divIcon
@@ -56,7 +57,8 @@ export const MapComponent: React.FC<MapComponentProps> = ({
   userLocation,
   markers = [],
   onCenterChange,
-  onMarkerClick
+  onMarkerClick,
+  onMapClick
 }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
@@ -68,20 +70,20 @@ export const MapComponent: React.FC<MapComponentProps> = ({
   useEffect(() => {
     if (!mapContainerRef.current) return;
 
-    // Define strict boundaries for Northwest Tunisia (Jendouba, Beja, Kef, Siliana)
-    const nwTunisiaBounds = L.latLngBounds(
-      [35.4, 8.0], // South-West limit
-      [37.4, 10.3] // North-East limit
+    // Define generous boundaries encompassing all of Tunisia (from Carthage down to Sahara Dunes)
+    const tunisiaBounds = L.latLngBounds(
+      [30.0, 7.2], // South-West limit (Sahara boundaries)
+      [37.6, 11.9] // North-East limit (Ghar El Melh/Bizerte limits)
     );
 
     // Create Map
     const map = L.map(mapContainerRef.current, {
       center: [center.lat, center.lng],
       zoom: 11,
-      minZoom: 9,
-      maxBounds: nwTunisiaBounds,
-      maxBoundsViscosity: 1.0,
-      zoomControl: false // Custom placement later or default
+      minZoom: 6,
+      maxBounds: tunisiaBounds,
+      maxBoundsViscosity: 0.85,
+      zoomControl: false
     });
 
     L.control.zoom({ position: 'topright' }).addTo(map);
@@ -105,6 +107,13 @@ export const MapComponent: React.FC<MapComponentProps> = ({
       }
       const newCenter = map.getCenter();
       onCenterChange({ lat: newCenter.lat, lng: newCenter.lng });
+    });
+
+    // Handle map coordinates clicking to bookmark places directly
+    map.on('click', (e: L.LeafletMouseEvent) => {
+      if (onMapClick) {
+        onMapClick({ lat: e.latlng.lat, lng: e.latlng.lng });
+      }
     });
 
     mapRef.current = map;

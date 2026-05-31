@@ -1,6 +1,6 @@
 {
   "name": "GeoGuide AI",
-  "description": "An interactive map-based chatbot powered by Gemini, featuring real-time Google Maps grounding, Web Search, and advanced reasoning.",
+  "description": "Memoria: An interactive social mapping hub and travel concierge for exploring Tunisian tourism and historical coordinate ruins.",
   "requestFramePermissions": [
     "geolocation"
   ],

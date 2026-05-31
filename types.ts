@@ -64,3 +64,52 @@ export interface AppState {
   mode: AppMode;
   apiKey: string | null;
 }
+
+// Custom Memoria Profiles and Communities
+export interface UserProfile {
+  uid: string;
+  displayName: string;
+  email: string;
+  bio: string;
+  mood: string; // active state mood: e.g. "Archaeological" | "Culinary" | "Culinary & Culture" | "Beach Resort"
+  createdAt?: any;
+}
+
+export interface SavedPlace {
+  id: string;
+  userId: string;
+  title: string;
+  lat: number;
+  lng: number;
+  type: string;
+  description?: string;
+  createdAt?: any;
+}
+
+export interface Review {
+  id: string;
+  userId: string;
+  userDisplayName: string;
+  placeTitle: string;
+  rating: number; // 1 to 5 stars
+  text: string;
+  createdAt?: any;
+}
+
+export interface Conversation {
+  id: string;
+  userId: string;
+  title: string;
+  messages: ChatMessage[];
+  updatedAt?: any;
+}
+
+export interface Friendship {
+  id: string; // composite senderUid_receiverUid or doc ID
+  senderUid: string;
+  receiverUid: string;
+  senderName: string;
+  receiverName: string;
+  status: 'pending' | 'accepted' | 'declined';
+  updatedAt?: any;
+}

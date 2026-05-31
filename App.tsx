@@ -1,87 +1,251 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { AppMode, ChatMessage, Coordinates, MapMarkerData } from './types';
+import { 
+  AppMode, 
+  ChatMessage, 
+  Coordinates, 
+  MapMarkerData, 
+  UserProfile, 
+  SavedPlace, 
+  Conversation 
+} from './types';
 import { DEFAULT_CENTER } from './constants';
 import { initializeGenAI, sendMessageToGemini } from './services/geminiService';
 import { MapComponent } from './components/MapComponent';
 import { ChatInterface } from './components/ChatInterface';
 import { WeatherWidget } from './components/WeatherWidget';
-import { X, Search, MapPin, Calendar, Star } from 'lucide-react';
+import { LandingPage } from './components/LandingPage';
+import { ProfileModal } from './components/ProfileModal';
+import { ReviewsSection } from './components/ReviewsSection';
+import { 
+  auth, 
+  db, 
+  handleFirestoreError, 
+  OperationType 
+} from './services/firebase';
+import { onAuthStateChanged, signOut } from 'firebase/auth';
+import { 
+  collection, 
+  doc, 
+  getDocs, 
+  getDoc, 
+  setDoc, 
+  deleteDoc, 
+  query, 
+  where,
+  orderBy
+} from 'firebase/firestore';
+import { 
+  X, 
+  Search, 
+  MapPin, 
+  Calendar, 
+  Compass,
+  Sparkles,
+  Bookmark,
+  ChevronRight,
+  LogOut,
+  FolderOpen,
+  Save,
+  Trash2,
+  Users2
+} from 'lucide-react';
 
 const App: React.FC = () => {
-  const [apiKey, setApiKey] = useState<string | null>(() => {
-    return (
-      (import.meta as any).env?.VITE_GEMINI_API_KEY ||
-      (import.meta as any).env?.VITE_API_KEY ||
-      process.env.API_KEY ||
-      process.env.GEMINI_API_KEY ||
-      null
-    );
-  });
+  // Auth state
+  const [userUid, setUserUid] = useState<string | null>(null);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+
+  // App parameters
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [currentMode, setCurrentMode] = useState<AppMode>(AppMode.MAPS);
   const [chatInput, setChatInput] = useState('');
   
-  // Map State
-  const [userLocation, setUserLocation] = useState<Coordinates | null>(null);
-  const [mapCenter, setMapCenter] = useState<Coordinates>(DEFAULT_CENTER);
+  // Map parameters
+  const [mapCenter, setMapCenter] = useState<Coordinates>({ lat: 36.8524, lng: 10.3344 }); // Carthage defaulted
   const [markers, setMarkers] = useState<MapMarkerData[]>([]);
-  
-  // UI State
-  const [isMobileChatOpen, setIsMobileChatOpen] = useState(false);
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [userLocation, setUserLocation] = useState<Coordinates | null>(null);
 
-  // Initialize API
+  // UI tabs navigation
+  const [activeDeckTab, setActiveDeckTab] = useState<'chat' | 'reviews' | 'footprints'>('chat');
+
+  // Footprints/Saved Places creation flows
+  const [clickedCoords, setClickedCoords] = useState<Coordinates | null>(null);
+  const [footprintTitle, setFootprintTitle] = useState('');
+  const [footprintDesc, setFootprintDesc] = useState('');
+  const [savedPlaces, setSavedPlaces] = useState<SavedPlace[]>([]);
+  const [placesLoading, setPlacesLoading] = useState(false);
+
+  // Conversations history saving flows
+  const [savedConvs, setSavedConvs] = useState<Conversation[]>([]);
+  const [activeConvId, setActiveConvId] = useState<string | null>(null);
+
+  // Auth Observer
   useEffect(() => {
-    if (apiKey) {
-      initializeGenAI(apiKey);
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        setUserUid(user.uid);
+        
+        // Fetch or seed profile details
+        try {
+          const docRef = doc(db, 'userProfiles', user.uid);
+          const docSnap = await getDoc(docRef);
+          if (docSnap.exists()) {
+            setProfile(docSnap.data() as UserProfile);
+          } else {
+            const seedProfile: UserProfile = {
+              uid: user.uid,
+              displayName: user.displayName || 'Tunisian Explorer',
+              email: user.email || '',
+              bio: "Passionate traveler looking forward to cataloguing Carthagenian ruins on Memoria.",
+              mood: "Archaeological"
+            };
+            await setDoc(docRef, seedProfile);
+            setProfile(seedProfile);
+          }
+        } catch (err) {
+          console.error("Error setting up profile:", err);
+        }
+      } else {
+        setUserUid(null);
+        setProfile(null);
+      }
+      setAuthLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // Fetch individual's Saved Footprints and Historic Chats
+  const loadUserData = useCallback(async (uid: string) => {
+    setPlacesLoading(true);
+    try {
+      // 1. Fetch Saved Places (Subcollection)
+      const placesSnap = await getDocs(collection(db, 'userProfiles', uid, 'savedPlaces'));
+      const listPlaces: SavedPlace[] = [];
+      placesSnap.forEach((docSnap) => {
+        listPlaces.push(docSnap.data() as SavedPlace);
+      });
+      setSavedPlaces(listPlaces);
+
+      // 2. Fetch Conversations (Query with Owner constraint)
+      const q = query(
+        collection(db, 'conversations'), 
+        where('userId', '==', uid)
+      );
+      const convSnap = await getDocs(q);
+      const listConvs: Conversation[] = [];
+      convSnap.forEach((docSnap) => {
+        listConvs.push(docSnap.data() as Conversation);
+      });
+      setSavedConvs(listConvs);
+    } catch (err) {
+      console.warn("Notice: Standard auth profile or database seeding in progress.");
+    } finally {
+      setPlacesLoading(false);
     }
-  }, [apiKey]);
-
-  // Geolocation
-  useEffect(() => {
-    // We optionally fetch geolocation if we want, but default to Dougga.
   }, []);
 
-  // Listen for the custom 'discover' event
   useEffect(() => {
-    const handleDiscoverClick = () => {
-      // Pick another archaeological location in NW Tunisia (e.g. Bulla Regia)
-      setMapCenter({ lat: 36.5583, lng: 8.7563 });
-      setCurrentMode(AppMode.MAPS);
-      setIsMobileChatOpen(false);
+    if (userUid) {
+      loadUserData(userUid);
+    }
+  }, [userUid, loadUserData]);
+
+  // Handle Log Out
+  const handleSignOut = async () => {
+    try {
+      await signOut(auth);
+      setUserUid(null);
+      setProfile(null);
+      setMessages([]);
       setMarkers([]);
-    };
-    
-    window.addEventListener('map-discover-click', handleDiscoverClick);
-    return () => window.removeEventListener('map-discover-click', handleDiscoverClick);
+      setSavedPlaces([]);
+      setSavedConvs([]);
+      setActiveConvId(null);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // Click Map callback
+  const handleMapClick = useCallback((coords: Coordinates) => {
+    setClickedCoords(coords);
+    setFootprintTitle('');
+    setFootprintDesc('');
+    // Focus or expand tab to bookmarks/footprints for prompt alignment
+    setActiveDeckTab('footprints');
   }, []);
 
+  // Set default markers on load of Northwest landmarks or Tunisia landmarks
+  useEffect(() => {
+    if (userUid) {
+      // Initialize with beautiful pre-configured Tunisia heritage coordinates
+      setMarkers([
+        {
+          id: 'carthage-antonine',
+          lat: 36.8547,
+          lng: 10.3341,
+          title: 'Antonine Baths (Carthage)',
+          type: 'archaeological',
+          description: 'The largest Roman baths ruins in Africa, boasting gorgeous coastal views.',
+          price: '12 TND'
+        },
+        {
+          id: 'dougga-theatre',
+          lat: 36.4221,
+          lng: 9.2201,
+          title: 'Roman Theatre of Dougga',
+          type: 'archaeological',
+          description: 'A monumentally preserved UNESCO theatre accommodating up to 3500 spectators.',
+          price: '8 TND'
+        },
+        {
+          id: 'sidi-bou-said',
+          lat: 36.8708,
+          lng: 10.3411,
+          title: 'Sidi Bou Said Art Medina',
+          type: 'clothes',
+          description: 'Fabled blue and white alleys and vibrant Tunisian artisan workshops.',
+          price: 'Free entry'
+        },
+        {
+          id: 'el-jem-coliseum',
+          lat: 35.2964,
+          lng: 10.7067,
+          title: 'Amphitheatre of El Jem',
+          type: 'archaeological',
+          description: 'Colossal, well-preserved Roman amphitheater rivaling the Roman Colosseum.',
+          price: '10 TND'
+        }
+      ]);
+    }
+  }, [userUid]);
+
+  // Trigger Gemini AI interaction message with Express proxy
   const handleSendMessage = useCallback(async (text: string, modeOverride?: AppMode, isEventSearch: boolean = false) => {
-    if (!apiKey) return;
+    if (!userUid) return;
 
     const activeMode = modeOverride || currentMode;
     if (modeOverride && modeOverride !== currentMode) {
       setCurrentMode(modeOverride);
     }
 
-    // Prepare prompt
     let promptToSend = text;
     if (isEventSearch) {
-      // Clear existing markers when starting a new search
       setMarkers([]);
-      promptToSend += `\n\nIMPORTANT: Focus ONLY on the exact local area (coordinates) I have selected. Do not search far away. If there are NO relevant results available exactly in this area, you must say: "Not available in this area, try to search for another area." and set "found" to false in the JSON. If there are results, set "found" to true.
-After your text response, you MUST provide a JSON code block. 
-The format should be:
+      promptToSend += `\n\nIMPORTANT: Focus on monuments and events in this Tunisia tourism coordinate area. After your text response, you MUST provide a JSON code block in this schema:
 \`\`\`json
 {
   "found": true,
   "markers": [
-    { "title": "Name", "lat": 12.34, "lng": 56.78, "type": "event|archaeological|clothes|coffee", "description": "Date & Time/History/Details", "price": "Optional Price/Rating" }
+    { "title": "Location Name", "lat": 12.34, "lng": 56.78, "type": "event|archaeological|clothes|coffee", "description": "Short historical details", "price": "e.g. 5 TND" }
   ]
 }
 \`\`\`
-Type can be 'event', 'archaeological', 'clothes', or 'coffee'. STRICT RULE: Only return the type that specifically matches my request category. DO NOT mix categories.`;
+Type can only be 'event', 'archaeological', 'clothes', or 'coffee'.`;
     }
 
     const userMessage: ChatMessage = {
@@ -90,268 +254,519 @@ Type can be 'event', 'archaeological', 'clothes', or 'coffee'. STRICT RULE: Only
       text,
       timestamp: new Date(),
     };
-    setMessages(prev => [...prev, userMessage]);
+
+    const updatedMessages = [...messages, userMessage];
+    setMessages(updatedMessages);
     setIsLoading(true);
 
     const contextLocation = mapCenter;
 
-    const response = await sendMessageToGemini(
-      promptToSend,
-      activeMode,
-      messages, 
-      contextLocation
-    );
+    try {
+      const response = await sendMessageToGemini(
+        promptToSend,
+        activeMode,
+        updatedMessages, 
+        contextLocation
+      );
 
-    // Parse markers if present
-    let displayText = response.text;
-    let showDiscoverButton = false;
-    const jsonBlockRegex = /```json\s*({[\s\S]*?})\s*```/;
-    const match = response.text.match(jsonBlockRegex);
+      let displayText = response.text;
+      let showDiscoverButton = false;
+      const jsonBlockRegex = /```json\s*({[\s\S]*?})\s*```/;
+      const match = response.text.match(jsonBlockRegex);
 
-    if (match && match[1]) {
-      try {
-        const data = JSON.parse(match[1]);
-        if (data.found === false || (data.markers && data.markers.length === 0)) {
-           showDiscoverButton = true;
-        } else if (data.markers && Array.isArray(data.markers)) {
-          const newMarkers = data.markers.map((m: any, idx: number) => ({
-            id: `marker-${Date.now()}-${idx}`,
-            lat: m.lat,
-            lng: m.lng,
-            title: m.title,
-            type: m.type,
-            description: m.description,
-            price: m.price
-          }));
-          setMarkers(newMarkers);
+      if (match && match[1]) {
+        try {
+          const data = JSON.parse(match[1]);
+          if (data.found === false || (data.markers && data.markers.length === 0)) {
+            showDiscoverButton = true;
+          } else if (data.markers && Array.isArray(data.markers)) {
+            const newMarkers = data.markers.map((m: any, idx: number) => ({
+              id: `marker-${Date.now()}-${idx}`,
+              lat: Number(m.lat),
+              lng: Number(m.lng),
+              title: m.title,
+              type: m.type,
+              description: m.description,
+              price: m.price
+            }));
+            setMarkers(newMarkers);
+          }
+          displayText = response.text.replace(match[0], '').trim();
+        } catch (e) {
+          console.error("Failed to parse marker JSON", e);
         }
-        // Remove JSON block from display text to keep UI clean
-        displayText = response.text.replace(match[0], '').trim();
-      } catch (e) {
-        console.error("Failed to parse marker JSON", e);
       }
-    } else if (isEventSearch && (displayText.toLowerCase().includes("not available"))) {
-        showDiscoverButton = true;
+
+      setMessages(prev => [...prev, { ...response, text: displayText, showDiscoverButton }]);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsLoading(false);
     }
+  }, [userUid, currentMode, messages, mapCenter]);
 
-    setMessages(prev => [...prev, { ...response, text: displayText, showDiscoverButton }]);
-    setIsLoading(false);
-  }, [apiKey, currentMode, messages, mapCenter]);
-
+  // Handle Left Category buttons
   const handleCategorySearch = useCallback((categoryType: string) => {
-    setIsMenuOpen(false);
     let searchPrompt = "";
     let modeToUse = AppMode.MAPS;
+
     if (categoryType === 'archaeological') {
-        searchPrompt = "Find archaeological areas exactly in this location in Northwest Tunisia. Show their entry prices and historical information. STRICT REQUIREMENT: DO NOT provide information or markers for coffee shops, events, or traditional clothes.";
+      searchPrompt = "Locate amazing UNESCO and Roman archaeological coordinate ruins in this part of Tunisia.";
     } else if (categoryType === 'events') {
-        searchPrompt = "Find upcoming events starting from tomorrow exactly in this area in Northwest Tunisia. Include dates and times. STRICT REQUIREMENT: DO NOT provide information or markers for archaeological sites, coffee shops, or traditional clothes.";
+      searchPrompt = "Are there any local events, tour offerings, festivals, or folklore happenings here in Tunisia?";
     } else if (categoryType === 'clothes') {
-        searchPrompt = "Search for and provide detailed information on the known traditional clothes specific to this exact area in Northwest Tunisia. Include deeply detailed historical background, dates, and what they look like. You MUST search to find REAL image URLs (e.g. from Wikimedia Commons ending in .jpg) and include them using Markdown syntax: `![Clothing Name](valid_image_url)`. It is critical the photos appear! Show map markers for museums, cultural centers, or artisan shops where you can find or experience them. STRICT REQUIREMENT: DO NOT provide information or markers for any other categories like coffee shops, events, or archaeological sites.";
-        modeToUse = AppMode.SEARCH; // Better for retrieving text details and images
+      searchPrompt = "Describe the traditional Tunisian clothing styles (like chechia, Jebba, or Sefseri) found around this area.";
+      modeToUse = AppMode.SEARCH;
     } else if (categoryType === 'coffee') {
-        searchPrompt = "Find the most highly rated coffee shops exactly in this area in Northwest Tunisia. Include their ratings and reviews. STRICT REQUIREMENT: DO NOT provide information or markers for archaeological sites, events, or traditional clothes.";
+      searchPrompt = "Search for outstanding traditional Tunisian tea or coffee houses around these coordinates.";
     }
     
     handleSendMessage(searchPrompt, modeToUse, true);
   }, [handleSendMessage]);
 
   const handleMarkerClick = useCallback((marker: MapMarkerData) => {
-    let prompt = "";
-    if (marker.type === 'event') {
-      prompt = `Tell me more details about the event "${marker.title}" happening nearby in Northwest Tunisia.`;
-    } else if (marker.type === 'clothes') {
-      prompt = `Search for and provide detailed information, intensely detailed historical dates, and background about the traditional clothes associated with or found at "${marker.title}" in Northwest Tunisia. You MUST include markdown photos/images: \`![Name](actual_image_url)\`.`;
-    } else if (marker.type === 'coffee') {
-      prompt = `Provide detailed reviews, ambiance, and information about the coffee shop "${marker.title}" in Northwest Tunisia.`;
-    } else {
-      prompt = `Provide historical information and the entry price for the archaeological area "${marker.title}" in Northwest Tunisia.`;
-    }
-    
+    let prompt = `Provide historical context and the entry value of "${marker.title}" in Tunisia.`;
     setChatInput(prompt);
-    setIsMobileChatOpen(true);
   }, []);
 
-  // If no API key is present
-  if (!apiKey) {
+  // Save footprint / Saved Place Creation
+  const handleSaveFootprint = async () => {
+    if (!userUid || !clickedCoords || !footprintTitle.trim()) return;
+
+    const placeId = `place_${Date.now()}`;
+    const newPlace: SavedPlace = {
+      id: placeId,
+      userId: userUid,
+      title: footprintTitle.trim(),
+      lat: clickedCoords.lat,
+      lng: clickedCoords.lng,
+      type: 'archaeological',
+      description: footprintDesc.trim() || 'Custom pinpointed tourist coordinates on Memoria.'
+    };
+
+    try {
+      const placePath = `userProfiles/${userUid}/savedPlaces/${placeId}`;
+      await setDoc(doc(db, 'userProfiles', userUid, 'savedPlaces', placeId), newPlace);
+      
+      // Update local state
+      setSavedPlaces(prev => [...prev, newPlace]);
+      setClickedCoords(null);
+      setFootprintTitle('');
+      setFootprintDesc('');
+    } catch (err) {
+      console.error(err);
+      handleFirestoreError(err, OperationType.CREATE, `userProfiles/${userUid}/savedPlaces/${placeId}`);
+    }
+  };
+
+  // Delete Footprint / Saved Place
+  const handleDeletePlace = async (placeId: string) => {
+    if (!userUid) return;
+    try {
+      await deleteDoc(doc(db, 'userProfiles', userUid, 'savedPlaces', placeId));
+      setSavedPlaces(prev => prev.filter(p => p.id !== placeId));
+    } catch (err) {
+      console.error(err);
+      handleFirestoreError(err, OperationType.DELETE, `userProfiles/${userUid}/savedPlaces/${placeId}`);
+    }
+  };
+
+  // Save Chat / Conversation Session
+  const handleSaveConversation = async () => {
+    if (!userUid || messages.length === 0) return;
+
+    const convId = activeConvId || `conv_${Date.now()}`;
+    const firstMsg = messages.find(m => m.role === 'user')?.text || 'Travel Session Log';
+    const convTitle = firstMsg.length > 25 ? firstMsg.substring(0, 25) + "..." : firstMsg;
+
+    const conversationDoc: Conversation = {
+      id: convId,
+      userId: userUid,
+      title: convTitle,
+      messages: messages,
+      updatedAt: new Date()
+    };
+
+    try {
+      const convPath = `conversations/${convId}`;
+      await setDoc(doc(db, 'conversations', convId), conversationDoc);
+      
+      setActiveConvId(convId);
+      
+      // Refresh local saved list
+      setSavedConvs(prev => {
+        if (prev.some(c => c.id === convId)) {
+          return prev.map(c => c.id === convId ? conversationDoc : c);
+        } else {
+          return [...prev, conversationDoc];
+        }
+      });
+    } catch (err) {
+      console.error(err);
+      handleFirestoreError(err, OperationType.CREATE, `conversations/${convId}`);
+    }
+  };
+
+  // Load Saved Chat
+  const handleLoadConversation = (conv: Conversation) => {
+    setMessages(conv.messages);
+    setActiveConvId(conv.id);
+    setActiveDeckTab('chat');
+  };
+
+  const handleStartNewChat = () => {
+    setMessages([]);
+    setActiveConvId(null);
+    setChatInput('');
+  };
+
+  if (authLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50 dark:bg-slate-950 p-6 text-slate-800 dark:text-slate-100 font-sans">
-        <div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl p-8 shadow-xl border border-slate-150 dark:border-slate-800 transition-all">
-          <div className="flex h-14 w-14 items-center justify-center rounded-3xl bg-blue-100/80 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 mb-6">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-7 h-7">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" />
-            </svg>
-          </div>
-          
-          <h1 className="text-2xl font-bold tracking-tight mb-2">Gemini API Key Required</h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mb-6 leading-relaxed">
-            The application is hosted successfully! To power our regional heritage exploration and chatbot recommendations, please configure your Gemini API Key.
-          </p>
-          
-          <div className="border-t border-slate-100 dark:border-slate-800/80 pt-6 space-y-4">
-            <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-400 mb-1">Vercel Setup Instructions</h2>
-            
-            <div className="flex gap-3">
-              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-50 dark:bg-blue-950/50 text-xs font-semibold text-blue-600">1</span>
-              <div>
-                <p className="text-sm font-medium text-slate-700 dark:text-slate-200">Open your Vercel Dashboard</p>
-                <p className="text-xs text-slate-400">Navigate to your project's settings page.</p>
-              </div>
-            </div>
-
-            <div className="flex gap-3">
-              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-50 dark:bg-blue-950/50 text-xs font-semibold text-blue-600">2</span>
-              <div>
-                <p className="text-sm font-medium text-slate-700 dark:text-slate-200">Add Environment Variable</p>
-                <p className="text-xs text-slate-400">
-                  Add <code className="font-mono bg-slate-100 dark:bg-slate-800 text-blue-600 px-1 rounded text-[11px] font-semibold">GEMINI_API_KEY</code> or <code className="font-mono bg-slate-100 dark:bg-slate-800 text-blue-600 px-1 rounded text-[11px] font-semibold">VITE_GEMINI_API_KEY</code> as the key.
-                </p>
-              </div>
-            </div>
-
-            <div className="flex gap-3">
-              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-50 dark:bg-blue-950/50 text-xs font-semibold text-blue-600">3</span>
-              <div>
-                <p className="text-sm font-medium text-slate-700 dark:text-slate-200">Redeploy your App</p>
-                <p className="text-xs text-slate-400">Re-run the build sequence or deploy your latest commit. The app will launch 100% instantly!</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-8 border-t border-slate-100 dark:border-slate-800/80 pt-4 flex items-center justify-between">
-            <a 
-              href="https://aistudio.google.com/app/apikey" 
-              target="_blank" 
-              className="text-xs font-medium text-blue-500 hover:text-blue-600 transition-colors flex items-center gap-1"
-            >
-              Get Gemini API Key
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-3.5 h-3.5">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
-              </svg>
-            </a>
-            
-            <p className="text-[10px] text-slate-400 dark:text-slate-500 italic">GeoGuide AI Offline-Capactive Map</p>
-          </div>
-        </div>
+      <div className="h-screen w-screen flex flex-col justify-center items-center bg-slate-50 text-slate-500 font-sans gap-2">
+        <Compass className="w-10 h-10 animate-spin text-teal-600" />
+        <span className="text-xs font-mono tracking-wider uppercase font-bold text-slate-400">Bootstrapping Memoria Maps...</span>
       </div>
     );
   }
 
+  // FORCE ACCESS AFTER SIGN IN
+  if (!userUid) {
+    return <LandingPage onAuthSuccess={(uid) => setUserUid(uid)} />;
+  }
+
+  const userMoodLabel = profile ? profile.mood : 'Archaeological';
+
   return (
-    <div className="relative h-screen w-screen overflow-hidden bg-slate-100 dark:bg-slate-900 flex flex-col md:flex-row">
+    <div className="relative h-screen w-screen overflow-hidden bg-slate-100 flex flex-col font-sans">
       
-      {/* Mobile Header / Toggle */}
-      <div className="md:hidden absolute top-0 left-0 right-0 z-[1000] p-4 pointer-events-none flex justify-end">
-         <button
-          onClick={() => setIsMobileChatOpen(!isMobileChatOpen)}
-          className="pointer-events-auto bg-white dark:bg-slate-800 p-3 rounded-full shadow-lg border border-gray-200 dark:border-gray-700 text-blue-600 dark:text-blue-400"
-        >
-          {isMobileChatOpen ? <X size={24} /> : <MessageSquareIcon />}
-        </button>
-      </div>
+      {/* 1. VISUALLY POLISHED HEADER */}
+      <header className="w-full bg-white border-b border-slate-150 px-6 py-4 flex items-center justify-between z-50 shadow-xs">
+        <div className="flex items-center gap-2">
+          <span className="p-1 px-2.5 bg-teal-600 rounded-xl text-white text-xs font-serif font-bold italic shadow-sm tracking-wide">
+            memoria
+          </span>
+          <span className="text-[10px] uppercase font-bold tracking-widest text-slate-400 font-mono hidden sm:inline-block border-l border-slate-200 pl-3">
+            Northwest Tunisia Heritage Nav
+          </span>
+        </div>
 
-      {/* Map Section */}
-      <div className="w-full h-full md:w-2/3 lg:w-3/4 absolute md:relative z-0">
-        <MapComponent 
-          center={mapCenter} 
-          userLocation={userLocation} 
-          markers={markers}
-          onCenterChange={setMapCenter}
-          onMarkerClick={handleMarkerClick}
-        />
-        
-        {/* Hamburger Menu Overlay */}
-        <div className="absolute top-6 left-14 z-[400] pointer-events-auto">
-          <button 
-            onClick={() => setIsMenuOpen(!isMenuOpen)}
-            className="flex items-center gap-2 bg-white dark:bg-slate-800 px-4 py-2.5 rounded-full shadow-lg border border-gray-200 dark:border-gray-700 text-slate-700 dark:text-slate-200 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors focus:outline-none"
-          >
-            {isMenuOpen ? <X size={20} /> : <Search size={20} />}
-            <span className="font-medium text-sm hidden sm:inline">Search Categories</span>
-          </button>
+        <div className="flex items-center gap-4">
           
-          {isMenuOpen && (
-             <div className="absolute top-14 left-0 w-64 bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col">
-               <div className="p-3 border-b border-gray-100 dark:border-gray-700 font-semibold text-xs text-slate-500 uppercase tracking-wider">
-                 Categories
-               </div>
-               <button onClick={() => handleCategorySearch('archaeological')} className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-slate-700 text-left text-sm text-slate-700 dark:text-slate-200">
-                 <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-yellow-600"><line x1="3" x2="21" y1="22" y2="22"/><line x1="6" x2="6" y1="18" y2="11"/><line x1="10" x2="10" y1="18" y2="11"/><line x1="14" x2="14" y1="18" y2="11"/><line x1="18" x2="18" y1="18" y2="11"/><polygon points="12 2 20 7 4 7"/></svg>
-                 Archaeological Areas
-               </button>
-               <button onClick={() => handleCategorySearch('events')} className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-slate-700 text-left text-sm text-slate-700 dark:text-slate-200">
-                 <Calendar size={18} className="text-orange-500" /> Upcoming Events
-               </button>
-               <button onClick={() => handleCategorySearch('clothes')} className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-slate-700 text-left text-sm text-slate-700 dark:text-slate-200">
-                 <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-pink-500"><path d="M20.38 3.46 16 2a4 4 0 0 1-8 0L3.62 3.46a2 2 0 0 0-1.34 2.23l.58 3.47a1 1 0 0 0 .99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2V10h2.15a1 1 0 0 0 .99-.84l.58-3.47a2 2 0 0 0-1.34-2.23z"/></svg> 
-                 Traditional Clothes
-               </button>
-               <button onClick={() => handleCategorySearch('coffee')} className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-slate-700 text-left text-sm text-slate-700 dark:text-slate-200">
-                 <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-purple-500"><path d="M10 2v2"/><path d="M14 2v2"/><path d="M16 8a1 1 0 0 1 1 1v8a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1h14a4 4 0 1 1 0 8v-3"/><path d="M6 2v2"/></svg>
-                 Top Coffee Shops
-               </button>
-             </div>
-          )}
-        </div>
+          {/* Active profile button */}
+          <button
+            onClick={() => setIsProfileOpen(true)}
+            className="flex items-center gap-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-150 px-3 py-1.5 rounded-xl transition text-xs font-semibold text-slate-700"
+          >
+            <Users2 size={14} className="text-teal-600" />
+            <span className="hidden sm:inline">Explorer Hub</span>
+            <span className="px-1.5 py-0.5 bg-teal-500 text-white rounded text-[9px] font-bold">
+              {userMoodLabel}
+            </span>
+          </button>
 
-        {/* Weather Widget */}
-        <div className="absolute top-6 right-6 z-[400]">
-          <WeatherWidget location={mapCenter} />
+          <button
+            onClick={handleSignOut}
+            className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-rose-600 rounded-xl transition"
+            title="Sign Out"
+          >
+            <LogOut size={15} />
+          </button>
         </div>
+      </header>
 
-        {/* Map Coordinates Badge */}
-        <div className="absolute bottom-6 left-4 z-[400] pointer-events-none">
-           <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-md px-3 py-1.5 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 flex items-center gap-2">
-             <MapPin size={12} className="text-slate-400" />
-             <span className="text-[11px] font-mono text-slate-600 dark:text-slate-300">
-               {mapCenter.lat.toFixed(4)}, {mapCenter.lng.toFixed(4)}
-             </span>
-           </div>
-        </div>
-      </div>
-
-      {/* Chat Section */}
-      <div 
-        className={`
-          absolute md:relative z-[500] 
-          w-full md:w-1/3 lg:w-1/4 h-[85vh] md:h-full bottom-0 
-          transition-transform duration-300 ease-in-out
-          ${isMobileChatOpen ? 'translate-y-0' : 'translate-y-[calc(100%-80px)]'}
-          md:translate-y-0
-          bg-transparent pointer-events-none md:pointer-events-auto
-          flex flex-col justify-end md:justify-start
-        `}
-      >
-        <div className="h-full pointer-events-auto p-4 md:p-0 md:border-l border-gray-200 dark:border-gray-800 bg-transparent md:bg-white md:dark:bg-slate-900">
-          <ChatInterface
-            messages={messages}
-            isLoading={isLoading}
-            currentMode={currentMode}
-            onSend={(text) => handleSendMessage(text, undefined, false)}
-            onModeChange={setCurrentMode}
-            inputValue={chatInput}
-            onInputChange={setChatInput}
+      {/* 2. THREE-PANEL CORE INTERACTION SECTION */}
+      <div className="flex-1 flex flex-col md:flex-row relative overflow-hidden">
+        
+        {/* LEAFLET CANVAS PANEL */}
+        <div className="flex-1 h-[45vh] md:h-full relative border-r border-slate-150">
+          <MapComponent 
+            center={mapCenter} 
+            userLocation={userLocation} 
+            markers={markers}
+            onCenterChange={setMapCenter}
+            onMarkerClick={handleMarkerClick}
+            onMapClick={handleMapClick}
           />
+
+          {/* Quick Categories HUD */}
+          <div className="absolute top-4 left-4 z-[400] flex gap-2">
+            <button 
+              onClick={() => handleCategorySearch('archaeological')}
+              className="bg-white/95 backdrop-blur shadow-sm hover:bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-full text-[11px] font-bold text-slate-700 flex items-center gap-1 transition"
+            >
+              🏺 Ruins
+            </button>
+            <button 
+              onClick={() => handleCategorySearch('events')}
+              className="bg-white/95 backdrop-blur shadow-sm hover:bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-full text-[11px] font-bold text-slate-700 flex items-center gap-1 transition"
+            >
+              🎭 Folklore
+            </button>
+            <button 
+              onClick={() => handleCategorySearch('clothes')}
+              className="bg-white/95 backdrop-blur shadow-sm hover:bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-full text-[11px] font-bold text-slate-700 flex items-center gap-1 transition"
+            >
+              🧵 Apparel
+            </button>
+            <button 
+              onClick={() => handleCategorySearch('coffee')}
+              className="bg-white/95 backdrop-blur shadow-sm hover:bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-full text-[11px] font-bold text-slate-700 flex items-center gap-1 transition"
+            >
+              ☕ Cafe
+            </button>
+          </div>
+
+          {/* Weather Widget float */}
+          <div className="absolute top-4 right-4 z-[400] hidden lg:block">
+            <WeatherWidget location={mapCenter} />
+          </div>
         </div>
+
+        {/* DECKS PANE CONTROL (TABBED NAVIGATION INTERACTIVE FOR MULTI-MODULE) */}
+        <div className="w-full md:w-[380px] lg:w-[440px] shrink-0 bg-slate-50 flex flex-col border-t md:border-t-0 border-slate-150">
+          
+          {/* Deck Tabs */}
+          <div className="flex border-b border-slate-150 bg-white">
+            <button
+              onClick={() => setActiveDeckTab('chat')}
+              className={`flex-1 text-center py-3.5 text-xs font-bold border-b-2 transition ${
+                activeDeckTab === 'chat' 
+                  ? 'border-indigo-600 text-slate-900 bg-slate-50/40' 
+                  : 'border-transparent text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              💬 Concierge AI
+            </button>
+
+            <button
+              onClick={() => setActiveDeckTab('reviews')}
+              className={`flex-1 text-center py-3.5 text-xs font-bold border-b-2 transition ${
+                activeDeckTab === 'reviews' 
+                  ? 'border-indigo-600 text-slate-900 bg-slate-50/40' 
+                  : 'border-transparent text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              ⭐ Reviews Feed
+            </button>
+
+            <button
+              onClick={() => setActiveDeckTab('footprints')}
+              className={`flex-1 text-center py-3.5 text-xs font-bold border-b-2 transition ${
+                activeDeckTab === 'footprints' 
+                  ? 'border-indigo-600 text-slate-900 bg-slate-50/40' 
+                  : 'border-transparent text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              🔖 Saved Trails ({savedPlaces.length})
+            </button>
+          </div>
+
+          {/* Tab Modules Content render */}
+          <div className="flex-1 overflow-hidden relative">
+            
+            {/* MODULE 1: AI CONCIERGE CHAT */}
+            {activeDeckTab === 'chat' && (
+              <div className="h-full flex flex-col bg-white">
+                
+                {/* Active Chat Control HUD */}
+                <div className="px-4 py-2 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between text-[11px] text-slate-400 font-mono font-semibold shrink-0">
+                  <span>
+                    {activeConvId ? "📁 Persistent Travel Session Cached" : "⚡ Standby Travel Log"}
+                  </span>
+                  
+                  <div className="flex gap-2">
+                    {messages.length > 0 && (
+                      <button
+                        onClick={handleSaveConversation}
+                        className="text-indigo-600 hover:underline flex items-center gap-0.5 font-bold"
+                        title="Save conversation securely to Firestore"
+                      >
+                        <Save size={11} className="mr-0.5" /> Save Session
+                      </button>
+                    )}
+                    <button
+                      onClick={handleStartNewChat}
+                      className="text-slate-600 hover:underline hover:text-slate-700 font-bold"
+                    >
+                      + Reset Chat
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex-1 overflow-hidden">
+                  <ChatInterface
+                    messages={messages}
+                    isLoading={isLoading}
+                    currentMode={currentMode}
+                    onSend={(text) => handleSendMessage(text, undefined, false)}
+                    onModeChange={setCurrentMode}
+                    inputValue={chatInput}
+                    onInputChange={setChatInput}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* MODULE 2: TRAVEL REVIEWS FEED */}
+            {activeDeckTab === 'reviews' && (
+              <div className="h-full bg-white">
+                <ReviewsSection 
+                  currentUid={userUid} 
+                  userDisplayName={profile?.displayName || 'Travel Explorer'} 
+                />
+              </div>
+            )}
+
+            {/* MODULE 3: SAVED COORDINATES FOOTPRINTS */}
+            {activeDeckTab === 'footprints' && (
+              <div className="h-full flex flex-col p-6 overflow-y-auto bg-white space-y-6">
+                
+                {/* Save new footprints dropped pin */}
+                {clickedCoords ? (
+                  <div className="p-4 bg-teal-50 border border-teal-200 rounded-2xl space-y-3 shrink-0">
+                    <h4 className="text-xs font-bold text-teal-800 flex items-center gap-1">
+                      <Sparkles size={14} className="text-teal-600" /> Save Captured Pin
+                    </h4>
+                    <p className="text-[10px] text-teal-600 font-mono">
+                      Coordinates: {clickedCoords.lat.toFixed(5)}, {clickedCoords.lng.toFixed(5)}
+                    </p>
+
+                    <div className="space-y-2">
+                      <input 
+                        type="text"
+                        required
+                        placeholder="Name of this destination... (e.g. Sidi Bou Said Tea Room)"
+                        value={footprintTitle}
+                        onChange={(e) => setFootprintTitle(e.target.value)}
+                        className="w-full text-xs p-2 rounded-xl border border-teal-300 focus:outline-none focus:ring-1 focus:ring-teal-500 bg-white"
+                      />
+                      <textarea
+                        placeholder="Add private commentary or guide notes..."
+                        value={footprintDesc}
+                        onChange={(e) => setFootprintDesc(e.target.value)}
+                        className="w-full text-xs p-2 rounded-xl border border-teal-300 focus:outline-none focus:ring-1 focus:ring-teal-500 bg-white"
+                        rows={2}
+                      />
+                    </div>
+
+                    <div className="flex gap-1.5 pt-1">
+                      <button
+                        onClick={handleSaveFootprint}
+                        className="flex-1 bg-teal-600 text-white text-xs font-bold py-2 rounded-xl hover:opacity-95 transition"
+                      >
+                        Keep Footprint
+                      </button>
+                      <button
+                        onClick={() => setClickedCoords(null)}
+                        className="px-3 py-2 bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl hover:bg-slate-300 transition"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl text-center text-xs text-slate-500 font-light leading-relaxed">
+                    💡 <strong>Tip:</strong> Click anywhere on the map to drop a footprint PIN, then log it here to back it up to your account.
+                  </div>
+                )}
+
+                {/* Lists of saved coordinates */}
+                <div className="space-y-3">
+                  <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider block">My Saved Coordinates Trail</h4>
+                  
+                  {placesLoading ? (
+                    <div className="text-center py-6 text-xs text-slate-400">Loading saved tracks...</div>
+                  ) : savedPlaces.length === 0 ? (
+                    <div className="text-center py-8 text-xs text-slate-400 font-light italic">
+                      No bookmarks logged on this trace yet. Click map coordinates to drop pin.
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {savedPlaces.map((p) => (
+                        <div 
+                          key={p.id}
+                          className="p-3 bg-white border border-slate-150 rounded-xl flex items-center justify-between gap-3 hover:border-slate-300 transition"
+                        >
+                          <button
+                            onClick={() => setMapCenter({ lat: p.lat, lng: p.lng })}
+                            className="flex-1 text-left"
+                            title="Fly map to coordinates"
+                          >
+                            <h5 className="font-bold text-xs text-slate-800 flex items-center gap-1">
+                              <MapPin size={12} className="text-indigo-600 shrink-0" />
+                              {p.title}
+                            </h5>
+                            <p className="text-[10px] text-slate-400 font-mono mt-0.5">
+                              {p.lat.toFixed(4)}, {p.lng.toFixed(4)}
+                            </p>
+                            <p className="text-[10px] text-slate-500 mt-1 line-clamp-1 italic font-light">
+                              {p.description}
+                            </p>
+                          </button>
+
+                          <button
+                            onClick={() => handleDeletePlace(p.id)}
+                            className="text-slate-300 hover:text-red-500 p-1 rounded-lg transition"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Lists of historic saved sessions */}
+                {savedConvs.length > 0 && (
+                  <div className="pt-4 border-t border-slate-150 space-y-3">
+                    <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider block">Historic Travel Conversations</h4>
+                    <div className="space-y-1.5">
+                      {savedConvs.map((c) => (
+                        <button
+                          key={c.id}
+                          onClick={() => handleLoadConversation(c)}
+                          className={`w-full text-left text-xs p-2 rounded-xl transition border flex items-center justify-between ${
+                            activeConvId === c.id 
+                              ? 'bg-indigo-50/50 border-indigo-200 text-indigo-800 font-semibold' 
+                              : 'bg-white hover:bg-slate-50 border-slate-150 text-slate-600'
+                          }`}
+                        >
+                          <span className="truncate">{c.title}</span>
+                          <ChevronRight size={12} className="shrink-0" />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+              </div>
+            )}
+
+          </div>
+        </div>
+
       </div>
+
+      {/* 3. PROFILE EXPLORER MODAL ELEMENT */}
+      {isProfileOpen && (
+        <ProfileModal 
+          currentUid={userUid} 
+          onClose={() => {
+            setIsProfileOpen(false);
+            // Re-fetch profile in case mood changed to refresh badge info
+            const refresh = async () => {
+              const docSnap = await getDoc(doc(db, 'userProfiles', userUid));
+              if (docSnap.exists()) {
+                setProfile(docSnap.data() as UserProfile);
+              }
+            };
+            refresh();
+          }} 
+        />
+      )}
+
     </div>
   );
 };
-
-const MessageSquareIcon = () => (
-  <svg
-    xmlns="http://www.w3.org/2000/svg"
-    width="24"
-    height="24"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
-    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-  </svg>
-);
 
 export default App;

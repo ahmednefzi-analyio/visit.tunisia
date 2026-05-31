@@ -1,11 +1,8 @@
-import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
-import { AppMode, Coordinates, ChatMessage, GroundingMetadata } from "../types";
-import { SYSTEM_INSTRUCTIONS } from "../constants";
-
-let genAI: GoogleGenAI | null = null;
+import { AppMode, Coordinates, ChatMessage } from "../types";
 
 export const initializeGenAI = (apiKey: string) => {
-  genAI = new GoogleGenAI({ apiKey });
+  // Server-side handles execution, no-op on the browser side to prevent key usage leakage
+  console.log("Client-side initialized proxy mode successfully.");
 };
 
 export const sendMessageToGemini = async (
@@ -14,101 +11,40 @@ export const sendMessageToGemini = async (
   history: ChatMessage[],
   location?: Coordinates
 ): Promise<ChatMessage> => {
-  if (!genAI) {
-    throw new Error("Gemini API not initialized");
-  }
-
-  let modelName = 'gemini-3-pro-preview';
-  const tools: any[] = [];
-  const toolConfig: any = {};
-
-  // Configure Model and Tools based on Mode
-  switch (mode) {
-    case AppMode.MAPS:
-      modelName = 'gemini-2.5-flash'; // Required for Maps Grounding
-      tools.push({ googleMaps: {} });
-      if (location) {
-        toolConfig.retrievalConfig = {
-          latLng: {
-            latitude: location.lat,
-            longitude: location.lng,
-          },
-        };
-      }
-      break;
-
-    case AppMode.SEARCH:
-      modelName = 'gemini-3-flash-preview';
-      tools.push({ googleSearch: {} });
-      break;
-
-    case AppMode.CHAT:
-      modelName = 'gemini-3-pro-preview';
-      break;
-  }
-
   try {
-    const config: any = {
-      systemInstruction: SYSTEM_INSTRUCTIONS[mode],
-    };
-
-    if (tools.length > 0) {
-      config.tools = tools;
-    }
-
-    if (Object.keys(toolConfig).length > 0) {
-      config.toolConfig = toolConfig;
-    }
-
-    const contents = history
-      .filter(m => !m.isError)
-      .map(m => ({
-        role: m.role,
-        parts: [{ text: m.text }],
-      }));
-
-    // Add current message
-    contents.push({
-      role: 'user',
-      parts: [{ text: prompt }],
+    const response = await fetch("/api/gemini", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        prompt,
+        mode,
+        history,
+        location,
+      }),
     });
 
-    const response: GenerateContentResponse = await genAI.models.generateContent({
-      model: modelName,
-      contents: contents,
-      config: config,
-    });
-
-    const text = response.text || "I couldn't generate a text response.";
-    
-    // Extract Grounding Metadata
-    const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
-    const groundingMetadata: GroundingMetadata = {};
-    
-    if (groundingChunks) {
-      groundingMetadata.mapChunks = groundingChunks
-        .filter((c: any) => c.maps)
-        .map((c: any) => c as any); // Type assertion for simplicity in this demo context
-        
-      groundingMetadata.searchChunks = groundingChunks
-        .filter((c: any) => c.web)
-        .map((c: any) => c as any);
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.text || "Failed to retrieve response from server-side Gemini server.");
     }
 
+    const data = await response.json();
     return {
-      id: Date.now().toString(),
-      role: 'model',
-      text: text,
-      timestamp: new Date(),
-      groundingMetadata,
+      id: data.id || Date.now().toString(),
+      role: data.role || "model",
+      text: data.text || "I couldn't generate a text response.",
+      timestamp: data.timestamp ? new Date(data.timestamp) : new Date(),
+      groundingMetadata: data.groundingMetadata,
+      isError: data.isError,
     };
-
   } catch (error: any) {
-    console.error("Gemini API Error:", error);
+    console.error("Gemini Proxy API Error:", error);
     return {
       id: Date.now().toString(),
-      role: 'model',
-      text: `Error: ${error.message || "Something went wrong."}`,
+      role: "model",
+      text: `Error: ${error.message || "Failed to connect to full-stack service."}`,
       timestamp: new Date(),
       isError: true,
     };

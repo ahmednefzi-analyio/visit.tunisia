@@ -1,0 +1,212 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Global Safe Net: Default deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- REUSABLE GLOBAL SECURITY PRIMITIVES ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // --- VALIDATION BLUEPRINTS ---
+    
+    function isValidUserProfile(data) {
+      return data.uid is string 
+        && data.uid == request.auth.uid
+        && data.displayName is string 
+        && data.displayName.size() >= 1 
+        && data.displayName.size() <= 100
+        && data.email is string 
+        && data.email.size() <= 150
+        && (!data.keys().hasAll(['bio']) || (data.bio is string && data.bio.size() <= 1000))
+        && (!data.keys().hasAll(['mood']) || (data.mood is string && data.mood.size() <= 100));
+    }
+
+    function isValidSavedPlace(data) {
+      return data.id is string 
+        && data.id.size() <= 128
+        && data.userId is string 
+        && data.userId == request.auth.uid
+        && data.title is string 
+        && data.title.size() >= 1 
+        && data.title.size() <= 200
+        && data.lat is number
+        && data.lng is number
+        && data.type is string 
+        && data.type.size() <= 50
+        && (!data.keys().hasAll(['description']) || (data.description is string && data.description.size() <= 1000));
+    }
+
+    function isValidReview(data) {
+      return data.id is string 
+        && data.id.size() <= 128
+        && data.userId is string 
+        && data.userId == request.auth.uid
+        && data.userDisplayName is string 
+        && data.userDisplayName.size() >= 1 
+        && data.userDisplayName.size() <= 100
+        && data.placeTitle is string 
+        && data.placeTitle.size() >= 1 
+        && data.placeTitle.size() <= 200
+        && data.rating is number 
+        && data.rating >= 1 
+        && data.rating <= 5
+        && data.text is string 
+        && data.text.size() >= 3 
+        && data.text.size() <= 2000;
+    }
+
+    function isValidConversation(data) {
+      return data.id is string 
+        && data.id.size() <= 128
+        && data.userId is string 
+        && data.userId == request.auth.uid
+        && data.title is string 
+        && data.title.size() <= 200
+        && data.messages is list 
+        && data.messages.size() <= 500;
+    }
+
+    function isValidFriendship(data) {
+      return data.id is string 
+        && data.id.size() <= 128
+        && data.senderUid is string 
+        && data.senderUid.size() <= 128
+        && data.receiverUid is string 
+        && data.receiverUid.size() <= 128
+        && data.senderName is string 
+        && data.senderName.size() <= 100
+        && data.receiverName is string 
+        && data.receiverName.size() <= 100
+        && data.status is string 
+        && (data.status == 'pending' || data.status == 'accepted' || data.status == 'declined');
+    }
+
+    // --- COLLECTION RULE MATCHERS ---
+
+    // 1. USER PROFILES: Public read allowed for socializing/friend-matching
+    match /userProfiles/{userId} {
+      allow get, list: if isSignedIn();
+      allow create: if isSignedIn() 
+        && isValidId(userId)
+        && userId == request.auth.uid 
+        && isValidUserProfile(incoming()) 
+        && incoming().createdAt == request.time;
+      allow update: if isSignedIn() 
+        && isValidId(userId)
+        && userId == request.auth.uid 
+        && isValidUserProfile(incoming())
+        && incoming().createdAt == existing().createdAt
+        && incoming().email == existing().email
+        && incoming().uid == existing().uid;
+      allow delete: if false; // Profiles are permanent for secure integrity
+
+      // Saved Places Subcollection
+      match /savedPlaces/{placeId} {
+        allow read, delete: if isOwner(userId);
+        allow create: if isOwner(userId) 
+          && isValidId(placeId)
+          && isValidSavedPlace(incoming())
+          && incoming().createdAt == request.time;
+        allow update: if isOwner(userId)
+          && isValidId(placeId)
+          && isValidSavedPlace(incoming())
+          && incoming().createdAt == existing().createdAt
+          && incoming().userId == existing().userId;
+      }
+    }
+
+    // 2. REVIEWS: Global collective sharing
+    match /reviews/{reviewId} {
+      allow get, list: if isSignedIn();
+      allow create: if isSignedIn()
+        && isValidId(reviewId)
+        && isValidReview(incoming())
+        && incoming().createdAt == request.time;
+      allow update: if isSignedIn()
+        && isValidId(reviewId)
+        && incoming().userId == request.auth.uid
+        && existing().userId == request.auth.uid
+        && isValidReview(incoming())
+        && incoming().createdAt == existing().createdAt
+        && incoming().userId == existing().userId;
+      allow delete: if isSignedIn() 
+        && existing().userId == request.auth.uid;
+    }
+
+    // 3. CONVERSATIONS: AI guidance histories (Private)
+    match /conversations/{conversationId} {
+      allow get, delete: if isSignedIn() && existing().userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn()
+        && isValidId(conversationId)
+        && isValidConversation(incoming())
+        && incoming().updatedAt == request.time;
+      allow update: if isSignedIn()
+        && isValidId(conversationId)
+        && existing().userId == request.auth.uid
+        && isValidConversation(incoming())
+        && incoming().userId == existing().userId
+        && incoming().id == existing().id
+        && incoming().updatedAt == request.time;
+    }
+
+    // 4. FRIENDSHIPS: Social linkage and match invites
+    match /friendships/{friendshipId} {
+      // Users can see friendships they participate in
+      allow get: if isSignedIn() 
+        && (existing().senderUid == request.auth.uid || existing().receiverUid == request.auth.uid);
+      
+      allow list: if isSignedIn() 
+        && (resource.data.senderUid == request.auth.uid || resource.data.receiverUid == request.auth.uid);
+
+      // Senders can create friendships in pending status
+      allow create: if isSignedIn()
+        && isValidId(friendshipId)
+        && isValidFriendship(incoming())
+        && incoming().senderUid == request.auth.uid
+        && incoming().status == 'pending'
+        && incoming().updatedAt == request.time;
+
+      // Update allowed if either user is part of the relationship
+      // Ensure the sender cannot unilaterally transition status from pending directly to accepted 
+      // without receiver input (Tiered Identity Logic checking state updates)
+      allow update: if isSignedIn()
+        && isValidId(friendshipId)
+        && (existing().senderUid == request.auth.uid || existing().receiverUid == request.auth.uid)
+        && isValidFriendship(incoming())
+        && incoming().senderUid == existing().senderUid
+        && incoming().receiverUid == existing().receiverUid
+        && incoming().updatedAt == request.time
+        && (
+          // Case 1: Active receiver accepting or declining request
+          (existing().receiverUid == request.auth.uid && (incoming().status == 'accepted' || incoming().status == 'declined')) ||
+          // Case 2: Unilateral status remains unchanged but fields like names update silently (rare, but kept robust)
+          (incoming().status == existing().status)
+        );
+
+      allow delete: if isSignedIn() 
+        && (existing().senderUid == request.auth.uid || existing().receiverUid == request.auth.uid);
+    }
+  }
+}
