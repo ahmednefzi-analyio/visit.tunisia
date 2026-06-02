@@ -65,7 +65,7 @@ const App: React.FC = () => {
   const [chatInput, setChatInput] = useState('');
   
   // Map parameters
-  const [mapCenter, setMapCenter] = useState<Coordinates>({ lat: 36.8524, lng: 10.3344 }); // Carthage defaulted
+  const [mapCenter, setMapCenter] = useState<Coordinates>({ lat: 36.4222, lng: 9.2220 }); // Dougga (Northwest Tunisia) defaulted
   const [markers, setMarkers] = useState<MapMarkerData[]>([]);
   const [userLocation, setUserLocation] = useState<Coordinates | null>(null);
 
@@ -226,43 +226,52 @@ const App: React.FC = () => {
   // Set default markers on load of Northwest landmarks or Tunisia landmarks
   useEffect(() => {
     if (userUid) {
-      // Initialize with beautiful pre-configured Tunisia heritage coordinates
+      // Initialize with beautiful pre-configured Northwest Tunisia heritage coordinates
       setMarkers([
-        {
-          id: 'carthage-antonine',
-          lat: 36.8547,
-          lng: 10.3341,
-          title: 'Antonine Baths (Carthage)',
-          type: 'archaeological',
-          description: 'The largest Roman baths ruins in Africa, boasting gorgeous coastal views.',
-          price: '12 TND'
-        },
         {
           id: 'dougga-theatre',
           lat: 36.4221,
           lng: 9.2201,
           title: 'Roman Theatre of Dougga',
           type: 'archaeological',
-          description: 'A monumentally preserved UNESCO theatre accommodating up to 3500 spectators.',
+          description: 'A monumentally preserved UNESCO theatre accommodating up to 3500 spectators in Béja province.',
           price: '8 TND'
         },
         {
-          id: 'sidi-bou-said',
-          lat: 36.8708,
-          lng: 10.3411,
-          title: 'Sidi Bou Said Art Medina',
-          type: 'clothes',
-          description: 'Fabled blue and white alleys and vibrant Tunisian artisan workshops.',
+          id: 'bulla-regia-subterranean',
+          lat: 36.5562,
+          lng: 8.7541,
+          title: 'Subterranean Villas of Bulla Regia',
+          type: 'archaeological',
+          description: 'Unique Roman houses built underground with remarkably preserved in-situ mosaic floors in Jendouba province.',
+          price: '8 TND'
+        },
+        {
+          id: 'chemtou-quarries',
+          lat: 36.4912,
+          lng: 8.5772,
+          title: 'Chemtou Numidian Marble Mines',
+          type: 'archaeological',
+          description: 'Famous Giallo Antico gold-pink marble quarries featuring a colossal sanctuary on Mount Tempest.',
+          price: '5 TND'
+        },
+        {
+          id: 'el-kef-kasbah',
+          lat: 36.1822,
+          lng: 8.7061,
+          title: 'Byzantine Kasbah of El Kef',
+          type: 'archaeological',
+          description: 'Imposing stronghold showcasing centuries of Numidian, Roman, Christian, and Islamic military architecture.',
           price: 'Free entry'
         },
         {
-          id: 'el-jem-coliseum',
-          lat: 35.2964,
-          lng: 10.7067,
-          title: 'Amphitheatre of El Jem',
-          type: 'archaeological',
-          description: 'Colossal, well-preserved Roman amphitheater rivaling the Roman Colosseum.',
-          price: '10 TND'
+          id: 'tabarka-genoese-fort',
+          lat: 36.9587,
+          lng: 8.7571,
+          title: 'Genoese Fort of Tabarka',
+          type: 'event', // labeled as event highlight
+          description: 'A 16th-century clifftop fortress commanding majestic panoramas of Tabarka coral harbors.',
+          price: '6 TND'
         }
       ]);
     }

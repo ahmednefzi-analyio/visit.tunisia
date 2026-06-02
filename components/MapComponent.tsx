@@ -70,19 +70,19 @@ export const MapComponent: React.FC<MapComponentProps> = ({
   useEffect(() => {
     if (!mapContainerRef.current) return;
 
-    // Define generous boundaries encompassing all of Tunisia (from Carthage down to Sahara Dunes)
-    const tunisiaBounds = L.latLngBounds(
-      [30.0, 7.2], // South-West limit (Sahara boundaries)
-      [37.6, 11.9] // North-East limit (Ghar El Melh/Bizerte limits)
+    // Define boundaries restricted strictly to Northwest Tunisia regions (Béja, Jendouba, Siliana, El Kef, Tabarka)
+    const northwestBounds = L.latLngBounds(
+      [35.6, 8.2], // South-West limit
+      [37.2, 9.8]  // North-East limit
     );
 
     // Create Map
     const map = L.map(mapContainerRef.current, {
       center: [center.lat, center.lng],
       zoom: 11,
-      minZoom: 6,
-      maxBounds: tunisiaBounds,
-      maxBoundsViscosity: 0.85,
+      minZoom: 9,
+      maxBounds: northwestBounds,
+      maxBoundsViscosity: 0.95,
       zoomControl: false
     });
 

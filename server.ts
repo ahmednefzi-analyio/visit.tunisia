@@ -44,7 +44,7 @@ async function startServer() {
       }
     }
 
-    let modelName = "gemini-3-pro-preview";
+    let modelName = "gemini-3.5-flash";
     const tools: any[] = [];
     const toolConfig: any = {};
 
@@ -58,7 +58,7 @@ async function startServer() {
     // Configure specific tools
     switch (mode) {
       case "MAPS":
-        modelName = "gemini-2.5-flash"; // Maps grounding support
+        modelName = "gemini-3.5-flash"; // Standard non-deprecated model with Maps grounding support
         tools.push({ googleMaps: {} });
         if (location) {
           toolConfig.retrievalConfig = {
@@ -70,12 +70,12 @@ async function startServer() {
         }
         break;
       case "SEARCH":
-        modelName = "gemini-3-flash-preview"; // Search grounding
+        modelName = "gemini-3.5-flash"; // Standard non-deprecated model with Search grounding support
         tools.push({ googleSearch: {} });
         break;
       case "CHAT":
       default:
-        modelName = "gemini-3-pro-preview";
+        modelName = "gemini-3.5-flash"; // Standard non-deprecated text model
         break;
     }
 
