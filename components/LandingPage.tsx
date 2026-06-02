@@ -23,7 +23,7 @@ import {
   signInWithPopup, 
   GoogleAuthProvider 
 } from 'firebase/auth';
-import { doc, setDoc } from 'firebase/firestore';
+import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 
 // Authentic generated Northwest Tunisia heritage images
 import douggaImg from '../src/assets/images/dougga_temple_ruins_1780256199867.png';
@@ -101,7 +101,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onAuthSuccess }) => {
             email: email,
             bio: "Honored to log Northwest ruins, ancient mountain trails, and roman architecture in Memoria.",
             mood: activeMood,
-            createdAt: new Date()
+            createdAt: serverTimestamp()
           });
         } catch (fsErr) {
           handleFirestoreError(fsErr, OperationType.CREATE, profilePath);
@@ -144,7 +144,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onAuthSuccess }) => {
           email: user.email || '',
           bio: "Looking forward to mapping the spectacular roman forums & subterranean mosaic trails on Memoria.",
           mood: 'Archaeological',
-          createdAt: new Date()
+          createdAt: serverTimestamp()
         }, { merge: true });
       } catch (fsErr) {
         console.warn("Silent profile merge notice:", fsErr);

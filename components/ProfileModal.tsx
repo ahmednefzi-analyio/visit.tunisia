@@ -20,7 +20,8 @@ import {
   setDoc, 
   deleteDoc,
   query, 
-  where 
+  where,
+  serverTimestamp
 } from 'firebase/firestore';
 import { UserProfile, Friendship } from '../types';
 
@@ -53,6 +54,31 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ currentUid, onClose 
 
   // Load Current Profile
   const loadMyProfile = async () => {
+    if (currentUid.startsWith('local-') || currentUid.startsWith('visitor-')) {
+      const stored = localStorage.getItem(`memoria_profile_${currentUid}`);
+      if (stored) {
+        const data = JSON.parse(stored) as UserProfile;
+        setProfile(data);
+        setNameInput(data.displayName || 'Heritage Guest');
+        setBioInput(data.bio || '');
+        setMoodInput(data.mood || 'Archaeological');
+      } else {
+        const guestData: UserProfile = {
+          uid: currentUid,
+          displayName: "Heritage Guest",
+          email: "guest@memoria.tn",
+          bio: "Instant guest visitor discovering Dougga & Bulla Regia over local sandbox layer.",
+          mood: "Archaeological"
+        };
+        setProfile(guestData);
+        setNameInput(guestData.displayName);
+        setBioInput(guestData.bio);
+        setMoodInput(guestData.mood);
+        localStorage.setItem(`memoria_profile_${currentUid}`, JSON.stringify(guestData));
+      }
+      return;
+    }
+
     try {
       const docRef = doc(db, 'userProfiles', currentUid);
       const docSnap = await getDoc(docRef);
@@ -71,6 +97,45 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ currentUid, onClose 
 
   // Load Community and Relationships
   const loadCommunityData = async () => {
+    if (currentUid.startsWith('local-') || currentUid.startsWith('visitor-')) {
+      // Seed high-fidelity mock explorers in sandbox environment
+      const mockUsers: UserProfile[] = [
+        {
+          uid: 'local-companion-1',
+          displayName: 'Yassine Belhassen',
+          email: 'yassine@memoria.tn',
+          bio: 'Advising on ancient Dougga structures and photography. Love Roman history!',
+          mood: 'Archaeological'
+        },
+        {
+          uid: 'local-companion-2',
+          displayName: 'Ines Khemiri',
+          email: 'ines@memoria.tn',
+          bio: 'Keen on discovering the forest Roman outposts and historical folklore around Tabarka & Ain Draham.',
+          mood: 'Culture'
+        },
+        {
+          uid: 'local-companion-3',
+          displayName: 'Skander Marzouki',
+          email: 'skander@memoria.tn',
+          bio: 'Exploring traditional spicy Harissa recipes of Tabarka coastal fish dishes.',
+          mood: 'Culinary'
+        }
+      ];
+      setAllUsers(mockUsers);
+
+      const cachedFriendships = localStorage.getItem(`memoria_friendships_${currentUid}`);
+      if (cachedFriendships) {
+        setFriendships(JSON.parse(cachedFriendships));
+      } else {
+        const seedFriendships: Friendship[] = [];
+        localStorage.setItem(`memoria_friendships_${currentUid}`, JSON.stringify(seedFriendships));
+        setFriendships(seedFriendships);
+      }
+      setLoading(false);
+      return;
+    }
+
     try {
       // 1. Fetch other profiles
       const usersSnap = await getDocs(collection(db, 'userProfiles'));
@@ -125,6 +190,20 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ currentUid, onClose 
     if (!profile) return;
     setSaveLoading(true);
 
+    if (currentUid.startsWith('local-') || currentUid.startsWith('visitor-')) {
+      const updated = {
+        ...profile,
+        displayName: nameInput.trim(),
+        bio: bioInput.trim(),
+        mood: moodInput
+      };
+      setProfile(updated);
+      localStorage.setItem(`memoria_profile_${currentUid}`, JSON.stringify(updated));
+      setEditing(false);
+      setSaveLoading(false);
+      return;
+    }
+
     try {
       const profileRef = doc(db, 'userProfiles', currentUid);
       await updateDoc(profileRef, {
@@ -154,6 +233,22 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ currentUid, onClose 
     if (!profile) return;
     const compositeId = `${currentUid}_${targetUser.uid}`;
     
+    if (currentUid.startsWith('local-') || currentUid.startsWith('visitor-')) {
+      const friendshipDoc: Friendship = {
+        id: compositeId,
+        senderUid: currentUid,
+        receiverUid: targetUser.uid,
+        senderName: profile.displayName,
+        receiverName: targetUser.displayName,
+        status: 'pending',
+        updatedAt: new Date().toISOString()
+      };
+      const updatedList = [...friendships, friendshipDoc];
+      setFriendships(updatedList);
+      localStorage.setItem(`memoria_friendships_${currentUid}`, JSON.stringify(updatedList));
+      return;
+    }
+
     try {
       const friendshipDoc: Friendship = {
         id: compositeId,
@@ -165,7 +260,12 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ currentUid, onClose 
         updatedAt: new Date()
       };
 
-      await setDoc(doc(db, 'friendships', compositeId), friendshipDoc);
+      const firestoreDoc = {
+        ...friendshipDoc,
+        updatedAt: serverTimestamp()
+      };
+
+      await setDoc(doc(db, 'friendships', compositeId), firestoreDoc);
       
       // Update local state smoothly
       setFriendships(prev => [...prev, friendshipDoc]);
@@ -177,16 +277,28 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ currentUid, onClose 
 
   // Accept Invite
   const acceptFriendInvite = async (friendship: Friendship) => {
+    if (currentUid.startsWith('local-') || currentUid.startsWith('visitor-')) {
+      const updatedList = friendships.map(f => {
+        if (f.id === friendship.id) {
+          return { ...f, status: 'accepted' as const, updatedAt: new Date().toISOString() };
+        }
+        return f;
+      });
+      setFriendships(updatedList);
+      localStorage.setItem(`memoria_friendships_${currentUid}`, JSON.stringify(updatedList));
+      return;
+    }
+
     try {
       const docRef = doc(db, 'friendships', friendship.id);
       await updateDoc(docRef, {
         status: 'accepted',
-        updatedAt: new Date()
+        updatedAt: serverTimestamp()
       });
 
       setFriendships(prev => prev.map(f => {
         if (f.id === friendship.id) {
-          return { ...f, status: 'accepted' };
+          return { ...f, status: 'accepted', updatedAt: new Date() };
         }
         return f;
       }));
@@ -198,6 +310,13 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ currentUid, onClose 
 
   // Decline or Cancel Relationship
   const removeFriendship = async (friendshipId: string) => {
+    if (currentUid.startsWith('local-') || currentUid.startsWith('visitor-')) {
+      const updatedList = friendships.filter(f => f.id !== friendshipId);
+      setFriendships(updatedList);
+      localStorage.setItem(`memoria_friendships_${currentUid}`, JSON.stringify(updatedList));
+      return;
+    }
+
     try {
       await deleteDoc(doc(db, 'friendships', friendshipId));
       setFriendships(prev => prev.filter(f => f.id !== friendshipId));

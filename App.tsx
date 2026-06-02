@@ -32,7 +32,8 @@ import {
   deleteDoc, 
   query, 
   where,
-  orderBy
+  orderBy,
+  serverTimestamp
 } from 'firebase/firestore';
 import { 
   X, 
@@ -100,10 +101,11 @@ const App: React.FC = () => {
               displayName: user.displayName || 'Tunisian Explorer',
               email: user.email || '',
               bio: "Passionate traveler looking forward to cataloguing Carthagenian ruins on Memoria.",
-              mood: "Archaeological"
+              mood: "Archaeological",
+              createdAt: serverTimestamp()
             };
             await setDoc(docRef, seedProfile);
-            setProfile(seedProfile);
+            setProfile({ ...seedProfile, createdAt: new Date() });
           }
         } catch (err) {
           console.error("Error setting up profile:", err);
@@ -383,7 +385,8 @@ Type can only be 'event', 'archaeological', 'clothes', or 'coffee'.`;
       lat: clickedCoords.lat,
       lng: clickedCoords.lng,
       type: 'archaeological',
-      description: footprintDesc.trim() || 'Custom pinpointed tourist coordinates on Memoria.'
+      description: footprintDesc.trim() || 'Custom pinpointed tourist coordinates on Memoria.',
+      createdAt: new Date()
     };
 
     if (userUid.startsWith('local-') || userUid.startsWith('visitor-')) {
@@ -398,7 +401,11 @@ Type can only be 'event', 'archaeological', 'clothes', or 'coffee'.`;
 
     try {
       const placePath = `userProfiles/${userUid}/savedPlaces/${placeId}`;
-      await setDoc(doc(db, 'userProfiles', userUid, 'savedPlaces', placeId), newPlace);
+      const firestorePlace = {
+        ...newPlace,
+        createdAt: serverTimestamp()
+      };
+      await setDoc(doc(db, 'userProfiles', userUid, 'savedPlaces', placeId), firestorePlace);
       
       // Update local state
       setSavedPlaces(prev => [...prev, newPlace]);
@@ -459,16 +466,27 @@ Type can only be 'event', 'archaeological', 'clothes', or 'coffee'.`;
 
     try {
       const convPath = `conversations/${convId}`;
-      await setDoc(doc(db, 'conversations', convId), conversationDoc);
+      const firestoreDoc = {
+        ...conversationDoc,
+        messages: conversationDoc.messages.map(m => ({
+          id: m.id || '',
+          role: m.role,
+          text: m.text,
+          timestamp: m.timestamp instanceof Date ? m.timestamp.toISOString() : String(m.timestamp)
+        })),
+        updatedAt: serverTimestamp()
+      };
+      await setDoc(doc(db, 'conversations', convId), firestoreDoc);
       
       setActiveConvId(convId);
       
       // Refresh local saved list
       setSavedConvs(prev => {
+        const item = { ...conversationDoc, updatedAt: new Date() };
         if (prev.some(c => c.id === convId)) {
-          return prev.map(c => c.id === convId ? conversationDoc : c);
+          return prev.map(c => c.id === convId ? item : c);
         } else {
-          return [...prev, conversationDoc];
+          return [...prev, item];
         }
       });
     } catch (err) {

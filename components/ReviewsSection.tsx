@@ -15,8 +15,10 @@ import {
   addDoc, 
   deleteDoc, 
   doc, 
+  setDoc,
   query, 
-  orderBy 
+  orderBy,
+  serverTimestamp
 } from 'firebase/firestore';
 import { Review } from '../types';
 
@@ -154,8 +156,12 @@ export const ReviewsSection: React.FC<ReviewsSectionProps> = ({ currentUid, user
 
     try {
       const reviewPath = `reviews/${reviewId}`;
-      // Use setDoc for strict id mapping matched to rules id parameter
-      await addDoc(collection(db, 'reviews'), newReview);
+      const firestoreReview = {
+        ...newReview,
+        createdAt: serverTimestamp()
+      };
+      // Use setDoc with strict ID key matched to rules ID parameter
+      await setDoc(doc(db, 'reviews', reviewId), firestoreReview);
 
       setPlaceTitle('');
       setText('');
