@@ -46,6 +46,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onAuthSuccess }) => {
   // Firebase domain error tracking
   const [showDomainHelper, setShowDomainHelper] = useState(false);
   const [domainErrorHost, setDomainErrorHost] = useState('');
+  const [showOperationNotAllowedHelper, setShowOperationNotAllowedHelper] = useState(false);
+  const [disabledProviderName, setDisabledProviderName] = useState('Email/Password');
 
   // Exclusively Northwest focused travel and explore moods
   const moods = [
@@ -55,6 +57,28 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onAuthSuccess }) => {
     { name: 'Fortress', label: '🌄 Table of Jugurtha Fortress & High Plateau' },
     { name: 'Mountain', label: '🌲 Khroumire Forest Roman Outposts & Folklore' }
   ];
+
+  const handleLaunchVirtualSandbox = () => {
+    // Generate a beautiful virtual user session that bypasses Firebase Auth completely!
+    const randomId = `local-visitor-${Math.floor(1000 + Math.random() * 9000)}`;
+    
+    // Seed virtual profile detail in localStorage
+    const visitorProfile = {
+      uid: randomId,
+      displayName: "Heritage Guest (" + activeMood + ")",
+      email: "guest@memoria.tn",
+      bio: "Instant guest visitor discovering Dougga & Bulla Regia over an offline fallback layer.",
+      mood: activeMood,
+      createdAt: new Date().toISOString()
+    };
+    
+    // Write profile to localStorage so App.tsx can use it
+    localStorage.setItem(`memoria_profile_${randomId}`, JSON.stringify(visitorProfile));
+    
+    onAuthSuccess(randomId);
+    setShowOperationNotAllowedHelper(false);
+    setShowDomainHelper(false);
+  };
 
   const handleEmailAuth = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -90,7 +114,15 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onAuthSuccess }) => {
       }
     } catch (err: any) {
       console.error(err);
-      setError(err.message || 'Authentication failed. Please verify credentials.');
+      if (
+        err.code === 'auth/operation-not-allowed' ||
+        (err.message && err.message.toLowerCase().includes('operation-not-allowed'))
+      ) {
+        setDisabledProviderName('Email/Password');
+        setShowOperationNotAllowedHelper(true);
+      } else {
+        setError(err.message || 'Authentication failed. Please verify credentials.');
+      }
     } finally {
       setLoading(false);
     }
@@ -129,6 +161,12 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onAuthSuccess }) => {
       ) {
         setDomainErrorHost(window.location.hostname);
         setShowDomainHelper(true);
+      } else if (
+        err.code === 'auth/operation-not-allowed' ||
+        (err.message && err.message.toLowerCase().includes('operation-not-allowed'))
+      ) {
+        setDisabledProviderName('Google Sign-In');
+        setShowOperationNotAllowedHelper(true);
       } else {
         setError(err.message || 'Google Auth aborted or unavailable in sandbox environment.');
       }
@@ -142,37 +180,11 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onAuthSuccess }) => {
     setLoading(true);
     setShowDomainHelper(false);
     try {
-      const visitorEmail = 'explorer@memoria.tn';
-      const visitorPassword = 'explorenorthwest';
-      try {
-        const userCredential = await signInWithEmailAndPassword(auth, visitorEmail, visitorPassword);
-        onAuthSuccess(userCredential.user.uid);
-      } catch (signInErr: any) {
-        // If account doesn't exist or is invalid-credential, create public guest account on-demand
-        if (
-          signInErr.code === 'auth/user-not-found' || 
-          signInErr.code === 'auth/invalid-credential' || 
-          signInErr.code === 'auth/wrong-password' ||
-          (signInErr.message && signInErr.message.includes('not-found'))
-        ) {
-          const userCredential = await createUserWithEmailAndPassword(auth, visitorEmail, visitorPassword);
-          const user = userCredential.user;
-          await setDoc(doc(db, 'userProfiles', user.uid), {
-            uid: user.uid,
-            displayName: "Northwest Visitor",
-            email: visitorEmail,
-            bio: "Express Visitor exploring Northwest Tunisia ancient heritage maps.",
-            mood: "Archaeological",
-            createdAt: new Date()
-          });
-          onAuthSuccess(user.uid);
-        } else {
-          throw signInErr;
-        }
-      }
+      // Direct instant fallback to sandbox mode to support systems with disabled email auth or domain errors
+      handleLaunchVirtualSandbox();
     } catch (err: any) {
-      console.error("Guest bypass error:", err);
-      setError(err.message || 'Quick guest access failed.');
+      console.error("Guest bypass error, executing direct virtual sandbox:", err);
+      handleLaunchVirtualSandbox();
     } finally {
       setLoading(false);
     }
@@ -592,17 +604,86 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onAuthSuccess }) => {
             {/* Actions */}
             <div className="mt-5 pt-3 border-t border-slate-100 flex flex-col sm:flex-row gap-2 justify-end">
               <button
-                onClick={handleGuestAccess}
+                onClick={handleLaunchVirtualSandbox}
                 className="w-full sm:w-auto px-4 py-2.5 bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer shadow-md"
               >
                 <Zap size={13} className="animate-pulse" />
-                Bypass & Enter Custom Guest Account
+                Bypass & Launch Offline Sandbox Mode
               </button>
               <button
                 onClick={() => setShowDomainHelper(false)}
                 className="w-full sm:w-auto px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition cursor-pointer"
               >
                 Close & Use Email Logins
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* 5. FIREBASE AUTHENTICATION CONFIGURATION HELPER OVERLAY */}
+      {showOperationNotAllowedHelper && (
+        <div className="fixed inset-0 z-[999] flex items-center justify-center bg-slate-900/70 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-3xl w-full max-w-lg p-6 overflow-hidden shadow-2xl border border-slate-200">
+            
+            {/* Header */}
+            <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <span className="p-2 bg-amber-100 text-amber-700 rounded-xl">
+                  <ShieldAlert size={20} />
+                </span>
+                <div>
+                  <h3 className="font-bold text-sm text-slate-800">Auth Provider Disabled</h3>
+                  <p className="text-[10px] text-slate-400 uppercase font-mono">Firebase Configuration Guard</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowOperationNotAllowedHelper(false)}
+                className="p-1 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg cursor-pointer transition"
+              >
+                <X size={15} />
+              </button>
+            </div>
+
+            {/* Instruction Body */}
+            <div className="mt-4 space-y-3">
+              <p className="text-xs text-slate-600 leading-relaxed font-light">
+                Your Firebase project has restricted or disabled <strong className="text-slate-800">{disabledProviderName}</strong> authentication. To resolve this error and enable official logins, follow these quick steps:
+              </p>
+
+              <div className="space-y-2 text-xs text-slate-600 font-light/80 bg-slate-50 border border-slate-150 p-4 rounded-xl">
+                <p className="font-bold text-slate-800 uppercase tracking-widest text-[10px] font-mono">Steps to Enable Logins:</p>
+                <ol className="list-decimal list-inside space-y-1.5 pl-1">
+                  <li>Go to the <a href="https://console.firebase.google.com" target="_blank" rel="noopener noreferrer" className="text-teal-600 hover:underline font-bold font-mono">Firebase Console</a>.</li>
+                  <li>Click into your active project, and select <strong className="text-slate-800 font-semibold">Authentication</strong> in the sidebar.</li>
+                  <li>Open the <strong className="text-slate-800 font-semibold">Sign-in method</strong> tab.</li>
+                  <li>Under <strong className="text-slate-700">Sign-in providers</strong>, edit <strong className="text-teal-600 font-semibold">{disabledProviderName}</strong>.</li>
+                  <li>Toggle the <strong className="text-slate-800">Enable</strong> switch, and click <strong className="text-teal-700 font-extrabold">Save</strong>.</li>
+                </ol>
+              </div>
+
+              <div className="p-3.5 bg-teal-50 border border-teal-150 rounded-xl">
+                <p className="text-[11px] text-teal-800 leading-normal font-medium">
+                  💡 <strong>Instant Developer Bypass:</strong> Don't have access to the Firebase Console right now? No worries click the button below to instantly launch the **Offline Virtual Sandbox Mode** to test the entire mapping, chat, and review experience over local cache!
+                </p>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="mt-5 pt-3 border-t border-slate-100 flex flex-col sm:flex-row gap-2 justify-end">
+              <button
+                onClick={handleLaunchVirtualSandbox}
+                className="w-full sm:w-auto px-4 py-2.5 bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer shadow-md"
+              >
+                <Zap size={13} className="animate-pulse" />
+                Bypass & Launch Offline Sandbox Mode
+              </button>
+              <button
+                onClick={() => setShowOperationNotAllowedHelper(false)}
+                className="w-full sm:w-auto px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition cursor-pointer"
+              >
+                Close & Try Log In
               </button>
             </div>
 

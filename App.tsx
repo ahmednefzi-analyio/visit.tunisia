@@ -109,8 +109,18 @@ const App: React.FC = () => {
           console.error("Error setting up profile:", err);
         }
       } else {
-        setUserUid(null);
-        setProfile(null);
+        setUserUid(prev => {
+          if (prev && (prev.startsWith('local-') || prev.startsWith('visitor-'))) {
+            return prev;
+          }
+          return null;
+        });
+        setProfile(prev => {
+          if (prev && (prev.uid.startsWith('local-') || prev.uid.startsWith('visitor-'))) {
+            return prev;
+          }
+          return null;
+        });
       }
       setAuthLoading(false);
     });
@@ -122,6 +132,24 @@ const App: React.FC = () => {
   const loadUserData = useCallback(async (uid: string) => {
     setPlacesLoading(true);
     try {
+      if (uid.startsWith('local-') || uid.startsWith('visitor-')) {
+        const storedPlaces = localStorage.getItem(`memoria_places_${uid}`);
+        if (storedPlaces) {
+          setSavedPlaces(JSON.parse(storedPlaces));
+        } else {
+          setSavedPlaces([]);
+        }
+
+        const storedConvs = localStorage.getItem(`memoria_convs_${uid}`);
+        if (storedConvs) {
+          setSavedConvs(JSON.parse(storedConvs));
+        } else {
+          setSavedConvs([]);
+        }
+        setPlacesLoading(false);
+        return;
+      }
+
       // 1. Fetch Saved Places (Subcollection)
       const placesSnap = await getDocs(collection(db, 'userProfiles', uid, 'savedPlaces'));
       const listPlaces: SavedPlace[] = [];
@@ -150,6 +178,20 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (userUid) {
+      if (userUid.startsWith('local-') || userUid.startsWith('visitor-')) {
+        const storedProfile = localStorage.getItem(`memoria_profile_${userUid}`);
+        if (storedProfile) {
+          setProfile(JSON.parse(storedProfile));
+        } else {
+          setProfile({
+            uid: userUid,
+            displayName: "Heritage Guest",
+            email: "guest@memoria.tn",
+            bio: "Instant guest visitor discovering Dougga & Bulla Regia over local sandbox layer.",
+            mood: "Archaeological"
+          });
+        }
+      }
       loadUserData(userUid);
     }
   }, [userUid, loadUserData]);
@@ -344,6 +386,16 @@ Type can only be 'event', 'archaeological', 'clothes', or 'coffee'.`;
       description: footprintDesc.trim() || 'Custom pinpointed tourist coordinates on Memoria.'
     };
 
+    if (userUid.startsWith('local-') || userUid.startsWith('visitor-')) {
+      const updated = [...savedPlaces, newPlace];
+      setSavedPlaces(updated);
+      localStorage.setItem(`memoria_places_${userUid}`, JSON.stringify(updated));
+      setClickedCoords(null);
+      setFootprintTitle('');
+      setFootprintDesc('');
+      return;
+    }
+
     try {
       const placePath = `userProfiles/${userUid}/savedPlaces/${placeId}`;
       await setDoc(doc(db, 'userProfiles', userUid, 'savedPlaces', placeId), newPlace);
@@ -362,6 +414,14 @@ Type can only be 'event', 'archaeological', 'clothes', or 'coffee'.`;
   // Delete Footprint / Saved Place
   const handleDeletePlace = async (placeId: string) => {
     if (!userUid) return;
+
+    if (userUid.startsWith('local-') || userUid.startsWith('visitor-')) {
+      const updated = savedPlaces.filter(p => p.id !== placeId);
+      setSavedPlaces(updated);
+      localStorage.setItem(`memoria_places_${userUid}`, JSON.stringify(updated));
+      return;
+    }
+
     try {
       await deleteDoc(doc(db, 'userProfiles', userUid, 'savedPlaces', placeId));
       setSavedPlaces(prev => prev.filter(p => p.id !== placeId));
@@ -386,6 +446,16 @@ Type can only be 'event', 'archaeological', 'clothes', or 'coffee'.`;
       messages: messages,
       updatedAt: new Date()
     };
+
+    if (userUid.startsWith('local-') || userUid.startsWith('visitor-')) {
+      setActiveConvId(convId);
+      const updated = savedConvs.some(c => c.id === convId)
+        ? savedConvs.map(c => c.id === convId ? conversationDoc : c)
+        : [...savedConvs, conversationDoc];
+      setSavedConvs(updated);
+      localStorage.setItem(`memoria_convs_${userUid}`, JSON.stringify(updated));
+      return;
+    }
 
     try {
       const convPath = `conversations/${convId}`;
